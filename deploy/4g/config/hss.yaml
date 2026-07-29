@@ -1,0 +1,8 @@
+db_uri: mongodb://mongo/open5gs
+logger:
+  level: info
+global:
+  max:
+    ue: 1024
+hss:
+  freeDiameter: /usr/local/etc/freeDiameter/hss.conf

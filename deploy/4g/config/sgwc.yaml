@@ -1,0 +1,15 @@
+logger:
+  level: info
+global:
+  max:
+    ue: 1024
+sgwc:
+  gtpc:
+    server:
+      - address: 172.22.0.3
+  pfcp:
+    server:
+      - address: 172.22.0.3
+    client:
+      sgwu:
+        - address: 172.22.0.6
