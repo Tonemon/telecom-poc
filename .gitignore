@@ -1,0 +1,15 @@
+# Working artifacts
+superpowers/
+
+# Build artifacts
+*.o
+*.log
+tools/**/bin/
+
+# Local runtime state
+deploy/**/logs/
+deploy/**/.env
+
+# Editor
+.vscode/
+.idea/
