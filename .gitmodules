@@ -1,0 +1,12 @@
+[submodule "vendor/open5gs"]
+	path = vendor/open5gs
+	url = https://github.com/open5gs/open5gs.git
+[submodule "vendor/srsRAN_4G"]
+	path = vendor/srsRAN_4G
+	url = https://github.com/srsran/srsRAN_4G.git
+[submodule "vendor/UERANSIM"]
+	path = vendor/UERANSIM
+	url = https://github.com/aligungr/UERANSIM.git
+[submodule "vendor/PacketRusher"]
+	path = vendor/PacketRusher
+	url = https://github.com/HewlettPackard/PacketRusher.git
