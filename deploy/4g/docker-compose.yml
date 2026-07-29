@@ -1,0 +1,134 @@
+name: telecom-poc-4g
+
+networks:
+  epc:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1
+
+services:
+  mongo:
+    image: mongo:7
+    networks:
+      epc:
+        ipv4_address: 172.22.0.2
+    volumes:
+      - "mongo-data:/data/db"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  nrf:
+    image: telecom-poc/open5gs:local
+    command: ["open5gs-nrfd", "-c", "/conf/nrf.yaml"]
+    volumes:
+      - "./config/nrf.yaml:/conf/nrf.yaml:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.10
+
+  scp:
+    image: telecom-poc/open5gs:local
+    command: ["open5gs-scpd", "-c", "/conf/scp.yaml"]
+    volumes:
+      - "./config/scp.yaml:/conf/scp.yaml:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.11
+    depends_on: [nrf]
+
+  hss:
+    image: telecom-poc/open5gs:local
+    entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/hss.conf", "172.22.0.8", "172.22.0.5", "--"]
+    command: ["open5gs-hssd", "-c", "/conf/hss.yaml"]
+    volumes:
+      - "./config/hss.yaml:/conf/hss.yaml:ro"
+      - "./scripts/diameter-entrypoint.sh:/scripts/diameter-entrypoint.sh:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.8
+    depends_on:
+      mongo: { condition: service_healthy }
+
+  pcrf:
+    image: telecom-poc/open5gs:local
+    entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/pcrf.conf", "172.22.0.9", "172.22.0.4", "--"]
+    command: ["open5gs-pcrfd", "-c", "/conf/pcrf.yaml"]
+    volumes:
+      - "./config/pcrf.yaml:/conf/pcrf.yaml:ro"
+      - "./scripts/diameter-entrypoint.sh:/scripts/diameter-entrypoint.sh:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.9
+    depends_on:
+      mongo: { condition: service_healthy }
+
+  sgwc:
+    image: telecom-poc/open5gs:local
+    command: ["open5gs-sgwcd", "-c", "/conf/sgwc.yaml"]
+    volumes:
+      - "./config/sgwc.yaml:/conf/sgwc.yaml:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.3
+
+  sgwu:
+    image: telecom-poc/open5gs:local
+    command: ["open5gs-sgwud", "-c", "/conf/sgwu.yaml"]
+    volumes:
+      - "./config/sgwu.yaml:/conf/sgwu.yaml:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.6
+
+  upf:
+    image: telecom-poc/open5gs:local
+    command:
+      - /bin/sh
+      - -c
+      - |
+        ip tuntap add name ogstun mode tun || true
+        ip addr add 10.45.0.1/16 dev ogstun || true
+        ip link set ogstun up
+        iptables -t nat -A POSTROUTING -s 10.45.0.0/16 ! -o ogstun -j MASQUERADE
+        exec open5gs-upfd -c /conf/upf.yaml
+    volumes:
+      - "./config/upf.yaml:/conf/upf.yaml:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.7
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+
+  smf:
+    image: telecom-poc/open5gs:local
+    entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/smf.conf", "172.22.0.4", "172.22.0.9", "--"]
+    command: ["open5gs-smfd", "-c", "/conf/smf.yaml"]
+    volumes:
+      - "./config/smf.yaml:/conf/smf.yaml:ro"
+      - "./scripts/diameter-entrypoint.sh:/scripts/diameter-entrypoint.sh:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.4
+    depends_on: [scp, upf, pcrf]
+
+  mme:
+    image: telecom-poc/open5gs:local
+    entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/mme.conf", "172.22.0.5", "172.22.0.8", "--"]
+    command: ["open5gs-mmed", "-c", "/conf/mme.yaml"]
+    volumes:
+      - "./config/mme.yaml:/conf/mme.yaml:ro"
+      - "./scripts/diameter-entrypoint.sh:/scripts/diameter-entrypoint.sh:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.5
+    depends_on: [hss, sgwc, smf]
+
+volumes:
+  mongo-data:
