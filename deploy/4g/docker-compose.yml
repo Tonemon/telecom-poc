@@ -130,5 +130,30 @@ services:
         ipv4_address: 172.22.0.5
     depends_on: [hss, sgwc, smf]
 
+  enb:
+    image: telecom-poc/srsran:local
+    command: ["srsenb", "/conf/enb.conf"]
+    volumes:
+      - "./config/enb.conf:/conf/enb.conf:ro"
+      - "./config/rr.conf:/conf/rr.conf:ro"
+      - "./config/sib.conf:/conf/sib.conf:ro"
+      - "./config/rb.conf:/conf/rb.conf:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.20
+    depends_on: [mme]
+
+  ue:
+    image: telecom-poc/srsran:local
+    command: ["srsue", "/conf/ue.conf"]
+    volumes:
+      - "./config/ue.conf:/conf/ue.conf:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.21
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    depends_on: [enb]
+
 volumes:
   mongo-data:

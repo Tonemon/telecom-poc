@@ -24,3 +24,15 @@ status-4g: ## Show 4G service health
 .PHONY: logs-4g
 logs-4g: ## Tail 4G stack logs
 	$(COMPOSE_4G) logs -f
+
+.PHONY: attach-4g
+attach-4g: ## Start eNB + UE and follow their logs
+	$(COMPOSE_4G) up -d enb ue
+	$(COMPOSE_4G) logs -f enb ue
+
+.PHONY: test-4g
+test-4g: ## Acceptance: provision, attach, and ping the internet via the UPF
+	$(COMPOSE_4G) up -d --build
+	./deploy/4g/scripts/add-subscriber.sh
+	./deploy/4g/scripts/wait-for-attach.sh
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
