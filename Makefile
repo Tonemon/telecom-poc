@@ -36,3 +36,17 @@ test-4g: ## Acceptance: provision, attach, and ping the internet via the UPF
 	./deploy/4g/scripts/add-subscriber.sh
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+
+.PHONY: capture-4g
+capture-4g: ## Start the 4G stack WITH packet capture (pcaps -> deploy/4g/pcap/)
+	$(COMPOSE_4G) --profile capture up -d --build
+	./deploy/4g/scripts/add-subscriber.sh
+	./deploy/4g/scripts/wait-for-attach.sh
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+	@echo "Captures being written to deploy/4g/pcap/ — run 'make capture-stop-4g' to flush & stop."
+
+.PHONY: capture-stop-4g
+capture-stop-4g: ## Stop capture sidecars and list resulting pcap files
+	$(COMPOSE_4G) --profile capture stop pcap-mme pcap-smf pcap-sgwu pcap-upf
+	$(COMPOSE_4G) stop enb ue
+	@ls -lh deploy/4g/pcap/*.pcap 2>/dev/null || echo "no pcaps found"

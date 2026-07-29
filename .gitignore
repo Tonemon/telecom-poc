@@ -13,3 +13,7 @@ deploy/**/.env
 # Editor
 .vscode/
 .idea/
+
+# Captured packet traces (analyze in Wireshark, do not commit)
+deploy/**/pcap/*.pcap
+deploy/**/pcap/*.pcapng

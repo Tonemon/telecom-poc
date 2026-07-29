@@ -138,6 +138,7 @@ services:
       - "./config/rr.conf:/conf/rr.conf:ro"
       - "./config/sib.conf:/conf/sib.conf:ro"
       - "./config/rb.conf:/conf/rb.conf:ro"
+      - "./pcap:/pcap"
     networks:
       epc:
         ipv4_address: 172.22.0.20
@@ -148,12 +149,52 @@ services:
     command: ["srsue", "/conf/ue.conf"]
     volumes:
       - "./config/ue.conf:/conf/ue.conf:ro"
+      - "./pcap:/pcap"
     networks:
       epc:
         ipv4_address: 172.22.0.21
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun"]
     depends_on: [enb]
+
+  # ---- Packet-capture sidecars (opt-in: `--profile capture`) --------------
+  # Each shares a network function's network namespace and runs tcpdump, so it
+  # sees exactly that NF's traffic. Output lands in deploy/4g/pcap/ for Wireshark.
+  pcap-mme:
+    image: telecom-poc/open5gs:local
+    profiles: ["capture"]
+    network_mode: "service:mme"
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["./pcap:/pcap"]
+    command: ["tcpdump", "-i", "any", "-U", "-w", "/pcap/core_mme.pcap"]
+    depends_on: [mme]
+
+  pcap-smf:
+    image: telecom-poc/open5gs:local
+    profiles: ["capture"]
+    network_mode: "service:smf"
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["./pcap:/pcap"]
+    command: ["tcpdump", "-i", "any", "-U", "-w", "/pcap/core_smf.pcap"]
+    depends_on: [smf]
+
+  pcap-sgwu:
+    image: telecom-poc/open5gs:local
+    profiles: ["capture"]
+    network_mode: "service:sgwu"
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["./pcap:/pcap"]
+    command: ["tcpdump", "-i", "any", "-U", "-w", "/pcap/core_sgwu.pcap"]
+    depends_on: [sgwu]
+
+  pcap-upf:
+    image: telecom-poc/open5gs:local
+    profiles: ["capture"]
+    network_mode: "service:upf"
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes: ["./pcap:/pcap"]
+    command: ["tcpdump", "-i", "any", "-U", "-w", "/pcap/core_upf.pcap"]
+    depends_on: [upf]
 
 volumes:
   mongo-data:

@@ -17,7 +17,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libsctp1 libgnutls30 libgcrypt20 libssl3 libidn12 libmongoc-1.0-0 libbson-1.0-0 \
       libyaml-0-2 libnghttp2-14 libmicrohttpd12 libcurl3-gnutls libtalloc2 libtins4.0 \
-      iproute2 iptables ca-certificates \
+      iproute2 iptables tcpdump ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local /usr/local
 RUN ldconfig
