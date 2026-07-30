@@ -220,10 +220,103 @@ func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- temporary stubs, replaced in Task 7 ---
-func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) { writeErr(w, 501, "todo") }
-func (s *Server) handleResume(w http.ResponseWriter, r *http.Request)  { writeErr(w, 501, "todo") }
-func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request)    { writeErr(w, 501, "todo") }
-func (s *Server) handleIP(w http.ResponseWriter, r *http.Request)      { writeErr(w, 501, "todo") }
-func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) { writeErr(w, 501, "todo") }
-func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request)   { writeErr(w, 501, "todo") }
+// suspend/resume share this helper
+func (s *Server) setStatus(w http.ResponseWriter, r *http.Request, barred bool, action provisioning.Action) {
+	var req ReasonRequest
+	json.NewDecoder(r.Body).Decode(&req)
+	if !provisioning.ValidReason(action, req.Reason) {
+		writeErr(w, http.StatusBadRequest, "valid reason required")
+		return
+	}
+	imsi := r.PathValue("imsi")
+	err := s.st.SetStatus(r.Context(), imsi, barred)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "subscriber not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, imsi, action, req.Reason, req.Note)
+	writeJSON(w, http.StatusOK, map[string]string{"imsi": imsi, "status": statusStr(barred)})
+}
+
+func statusStr(barred bool) string {
+	if barred {
+		return "suspended"
+	}
+	return "active"
+}
+
+func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {
+	s.setStatus(w, r, true, provisioning.ActionSuspend)
+}
+func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
+	s.setStatus(w, r, false, provisioning.ActionResume)
+}
+
+func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
+	var req PlanRequest
+	json.NewDecoder(r.Body).Decode(&req)
+	if !provisioning.ValidReason(provisioning.ActionPlan, req.Reason) {
+		writeErr(w, http.StatusBadRequest, "valid reason required")
+		return
+	}
+	dl, err := subscriber.ParseAMBR(req.DL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad dl: "+err.Error())
+		return
+	}
+	ul, err := subscriber.ParseAMBR(req.UL)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad ul: "+err.Error())
+		return
+	}
+	imsi := r.PathValue("imsi")
+	err = s.st.SetAMBR(r.Context(), imsi, dl, ul)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "subscriber not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, imsi, provisioning.ActionPlan, req.Reason, req.Note)
+	writeJSON(w, http.StatusOK, map[string]string{"imsi": imsi, "dl": req.DL, "ul": req.UL})
+}
+
+func (s *Server) handleIP(w http.ResponseWriter, r *http.Request) {
+	var req IPRequest
+	json.NewDecoder(r.Body).Decode(&req)
+	if !provisioning.ValidReason(provisioning.ActionIP, req.Reason) {
+		writeErr(w, http.StatusBadRequest, "valid reason required")
+		return
+	}
+	imsi := r.PathValue("imsi")
+	err := s.st.SetStaticIP(r.Context(), imsi, req.IPv4)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "subscriber not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, imsi, provisioning.ActionIP, req.Reason, req.Note)
+	writeJSON(w, http.StatusOK, map[string]string{"imsi": imsi, "ipv4": req.IPv4})
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	recs, err := s.st.History(r.Context(), r.PathValue("imsi"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, recs)
+}
+
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	writeErr(w, http.StatusNotImplemented, "usage metrics arrive with Plan 4 (Prometheus)")
+}
