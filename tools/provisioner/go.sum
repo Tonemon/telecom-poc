@@ -1,0 +1,4 @@
+github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
+github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+github.com/wmnsk/milenage v1.2.1 h1:AmU3cp4+/pF32B77U3ipV29ZHf1gXG3twonITrIqUT8=
+github.com/wmnsk/milenage v1.2.1/go.mod h1:0u7HPh1BsNXPRnpWSCuaYkL3QB8c0Ihh2qSn1MX4B1c=
