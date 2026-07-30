@@ -22,6 +22,30 @@ services:
       timeout: 5s
       retries: 12
 
+  # Go provisioning server (BSS-side). Owns the Milenage crypto and the sole
+  # write path to the subscriber DB; telcoctl (client) talks to its REST API.
+  provisioner:
+    build:
+      context: ../../tools/provisioner
+    image: telecom-poc/provisioner:local
+    environment:
+      PROVISIONER_MONGODB_URI: "mongodb://172.22.0.2/open5gs"
+      PROVISIONER_API_TOKEN: "dev-operator-token"
+      PROVISIONER_LISTEN_ADDR: ":8080"
+      PROVISIONER_ACTOR: "operator"
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.30
+    depends_on:
+      mongo: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   nrf:
     image: telecom-poc/open5gs:local
     command: ["open5gs-nrfd", "-c", "/conf/nrf.yaml"]
