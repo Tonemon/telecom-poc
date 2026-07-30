@@ -18,6 +18,8 @@ type Fake struct {
 	audit []provisioning.AuditRecord
 }
 
+var _ Store = (*Fake)(nil)
+
 func NewFake() *Fake { return &Fake{recs: map[string]*Record{}} }
 
 func (f *Fake) Insert(_ context.Context, s subscriber.Subscriber) error {
