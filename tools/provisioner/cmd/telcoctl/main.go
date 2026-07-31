@@ -37,7 +37,7 @@ func popFlag(args []string, name string) (val string, present bool, rest []strin
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--"+name {
 			present = true
-			if i+1 < len(args) && len(args[i+1]) > 1 && args[i+1][0] != '-' {
+			if i+1 < len(args) && len(args[i+1]) > 0 && args[i+1][0] != '-' {
 				val = args[i+1]
 				i++
 			}

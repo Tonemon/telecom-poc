@@ -1,4 +1,6 @@
 COMPOSE_4G := docker compose -f deploy/4g/docker-compose.yml
+# Everything except the radio (enb) and the device (ue): the EPC core + provisioner.
+CORE_4G := mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 
 .PHONY: help
 help:
@@ -13,8 +15,8 @@ submodules: ## Initialise and update git submodules
 up-4g: ## Build and start the 4G stack
 	$(COMPOSE_4G) up -d --build
 
-.PHONY: down-4g
-down-4g: ## Stop and remove the 4G stack
+.PHONY: 4g-auto-down
+4g-auto-down: ## Stop and remove the whole 4G stack + volumes
 	$(COMPOSE_4G) down -v
 
 .PHONY: status-4g
@@ -43,12 +45,64 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 	docker rm telcoctl-extract >/dev/null
 	@echo "built ./bin/telcoctl"
 
-.PHONY: test-4g
-test-4g: ## Acceptance: provision via telcoctl, attach, and ping the internet via the UPF
+.PHONY: 4g-auto
+4g-auto: ## Full automated deployment: bring up everything, provision, attach, ping the internet
 	$(COMPOSE_4G) up -d --build
 	./deploy/4g/scripts/provision.sh
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+
+# --- Split deployment (mirrors the manual validation in docs/4G.md §6) ------------
+# 4g-infra brings up the operator's network (core + eNB) and provisions a subscriber,
+# but starts NO UE. 4g-device then brings up the UE and attaches it. These are meant
+# to sit ALONGSIDE the by-hand steps in §6, not replace them.
+
+.PHONY: 4g-infra
+4g-infra: ## Bring up the telco network (EPC core + eNB) only — no subscribers, no UE
+	@echo "==> [1/2] Building & starting the EPC core + provisioner (no radio yet):"
+	@echo "          $(CORE_4G)"
+	$(COMPOSE_4G) up -d --build $(CORE_4G)
+	@echo "==> [2/2] Starting the eNodeB (enb) — it S1-Setups to the MME..."
+	$(COMPOSE_4G) up -d enb
+	@echo ""
+	@echo "Network is ready: full EPC core + eNB are up. No subscribers provisioned yet."
+	@echo ""
+	@echo "Use the telcoctl client to create & manage subscriptions. Quick demo (adds 3):"
+	@echo "    make 4g-demo-subscribers"
+	@echo ""
+	@echo "Or add the soft-UE's own SIM by hand, so 'make 4g-device' can attach:"
+	@echo "    $(COMPOSE_4G) exec -e TELCOCTL_TOKEN=dev-operator-token provisioner \\"
+	@echo "      telcoctl add --imsi 999700000000001 --ki 465B5CE8B199B49FAA5F0A2EE238A6BC \\"
+	@echo "      --opc E8ED289DEBA952E4283B54E88E6183CA --apn internet --reason NEW_ACTIVATION"
+	@echo ""
+	@echo "Or from your host: 'make telcoctl', then point it at the published API, e.g.:"
+	@echo "    TELCOCTL_SERVER=http://127.0.0.1:8080 TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl list"
+
+.PHONY: 4g-demo-subscribers
+4g-demo-subscribers: ## Register 3 demo subscribers via telcoctl (run after 'make 4g-infra')
+	./deploy/4g/scripts/demo-subscribers.sh
+
+.PHONY: 4g-infra-down
+4g-infra-down: ## Tear down the whole stack + volumes (infra is the foundation; takes the UE too)
+	@echo "==> Tearing down the ENTIRE 4G stack (core + eNB + UE if present) and volumes..."
+	$(COMPOSE_4G) down -v
+	@echo "Stack down."
+
+.PHONY: 4g-device
+4g-device: ## Bring up the UE against a running infra, wait for attach, ping the internet
+	@echo "    (needs subscriber 999700000000001 provisioned — 'make 4g-demo-subscribers' if not)"
+	@echo "==> [1/2] Starting the UE (ue) — camps on the cell and runs NAS attach..."
+	$(COMPOSE_4G) up -d ue
+	./deploy/4g/scripts/wait-for-attach.sh
+	@echo "==> [2/2] Data-plane check: ping 8.8.8.8 from the UE via tun_srsue..."
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+	@echo "Device attached and data plane verified."
+
+.PHONY: 4g-device-down
+4g-device-down: ## Stop and remove ONLY the UE container; leave the infra running
+	@echo "==> Stopping and removing the UE container (ue). Infra (core + eNB) stays up."
+	$(COMPOSE_4G) rm -sf ue
+	@echo "UE removed. Bring it back with 'make 4g-device'."
 
 .PHONY: test-provisioner-lifecycle
 test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores it

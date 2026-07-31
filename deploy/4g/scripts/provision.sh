@@ -21,6 +21,6 @@ done
 # telcoctl runs inside the provisioner container; server is on localhost there.
 $COMPOSE exec -T -e TELCOCTL_TOKEN="$TOKEN" -e TELCOCTL_SERVER="http://127.0.0.1:8080" \
   provisioner telcoctl add --imsi "$IMSI" --ki "$KI" --opc "$OPC" --apn internet \
-  --reason NEW_ACTIVATION --note "make test-4g"
+  --reason NEW_ACTIVATION --note "make 4g-auto/4g-infra"
 
 echo "Provisioned $IMSI via telcoctl"
