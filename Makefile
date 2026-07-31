@@ -17,7 +17,7 @@ up-4g: ## Build and start the 4G stack
 
 .PHONY: 4g-auto-down
 4g-auto-down: ## Stop and remove the whole 4G stack + volumes
-	$(COMPOSE_4G) down -v
+	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
 
 .PHONY: status-4g
 status-4g: ## Show 4G service health
@@ -52,10 +52,10 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
 
-# --- Split deployment (mirrors the manual validation in docs/4G.md §6) ------------
+# --- Split deployment (mirrors the manual validation in docs/4G.md §5.3) ----------
 # 4g-infra brings up the operator's network (core + eNB) and provisions a subscriber,
 # but starts NO UE. 4g-device then brings up the UE and attaches it. These are meant
-# to sit ALONGSIDE the by-hand steps in §6, not replace them.
+# to sit ALONGSIDE the by-hand steps in §5.3, not replace them.
 
 .PHONY: 4g-infra
 4g-infra: ## Bring up the telco network (EPC core + eNB) only — no subscribers, no UE
@@ -84,8 +84,8 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 
 .PHONY: 4g-infra-down
 4g-infra-down: ## Tear down the whole stack + volumes (infra is the foundation; takes the UE too)
-	@echo "==> Tearing down the ENTIRE 4G stack (core + eNB + UE if present) and volumes..."
-	$(COMPOSE_4G) down -v
+	@echo "==> Tearing down the ENTIRE 4G stack (core + eNB + UE + capture sidecars) and volumes..."
+	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
 	@echo "Stack down."
 
 .PHONY: 4g-device
