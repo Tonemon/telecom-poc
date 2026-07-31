@@ -5,6 +5,8 @@ superpowers/
 *.o
 *.log
 tools/**/bin/
+__pycache__/
+*.pyc
 
 # Local runtime state
 deploy/**/logs/
