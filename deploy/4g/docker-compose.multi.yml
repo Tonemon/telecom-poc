@@ -1,0 +1,98 @@
+# Multi-UE / multi-cell overlay for the 4G stack. Layer on top of the base compose:
+#   docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml ...
+# A cell = one eNB + one GNU Radio broker + its UEs. Brokers must start LAST and be
+# restarted whenever the RAN restarts. The base `enb`/`ue` services are simply not started
+# under this topology. See docs/superpowers/specs/2026-07-31-multi-ue-broker-design.md.
+services:
+  # ---- Cell A: enb-a + broker-a + ue1, ue2 --------------------------------
+  enb-a:
+    image: telecom-poc/srsran:local
+    command: ["srsenb", "/conf/enb.conf"]
+    volumes:
+      - "./config/multi/enb-a.conf:/conf/enb.conf:ro"
+      - "./config/multi/rr-a.conf:/conf/rr.conf:ro"
+      - "./config/sib.conf:/conf/sib.conf:ro"
+      - "./config/rb.conf:/conf/rb.conf:ro"
+      - "./pcap:/pcap"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.40
+    depends_on: [mme]
+
+  broker-a:
+    image: telecom-poc/broker:local
+    environment:
+      ENB_DL: "tcp://172.22.0.40:2000"
+      ENB_UL: "tcp://*:2100"
+      SRATE: "23040000"
+      UES: "2111,172.22.0.61:2001 2112,172.22.0.62:2001"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.41
+    depends_on: [enb-a, ue1, ue2]
+
+  ue1:
+    image: telecom-poc/srsran:local
+    command: ["srsue", "/conf/ue.conf"]
+    volumes:
+      - "./config/multi/ue1.conf:/conf/ue.conf:ro"
+      - "./pcap:/pcap"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.61
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    depends_on: [enb-a]
+
+  ue2:
+    image: telecom-poc/srsran:local
+    command: ["srsue", "/conf/ue.conf"]
+    volumes:
+      - "./config/multi/ue2.conf:/conf/ue.conf:ro"
+      - "./pcap:/pcap"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.62
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    depends_on: [enb-a]
+
+  # ---- Cell B: enb-b + broker-b + ue3 -------------------------------------
+  enb-b:
+    image: telecom-poc/srsran:local
+    command: ["srsenb", "/conf/enb.conf"]
+    volumes:
+      - "./config/multi/enb-b.conf:/conf/enb.conf:ro"
+      - "./config/multi/rr-b.conf:/conf/rr.conf:ro"
+      - "./config/sib.conf:/conf/sib.conf:ro"
+      - "./config/rb.conf:/conf/rb.conf:ro"
+      - "./pcap:/pcap"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.50
+    depends_on: [mme]
+
+  broker-b:
+    image: telecom-poc/broker:local
+    environment:
+      ENB_DL: "tcp://172.22.0.50:2000"
+      ENB_UL: "tcp://*:2100"
+      SRATE: "23040000"
+      UES: "2111,172.22.0.63:2001"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.51
+    depends_on: [enb-b, ue3]
+
+  ue3:
+    image: telecom-poc/srsran:local
+    command: ["srsue", "/conf/ue.conf"]
+    volumes:
+      - "./config/multi/ue3.conf:/conf/ue.conf:ro"
+      - "./pcap:/pcap"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.63
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    depends_on: [enb-b]
