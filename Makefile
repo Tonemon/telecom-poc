@@ -1,4 +1,5 @@
 COMPOSE_4G := docker compose -f deploy/4g/docker-compose.yml
+COMPOSE_MULTI := docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml
 # Everything except the radio (enb) and the device (ue): the EPC core + provisioner.
 CORE_4G := mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 
@@ -114,6 +115,31 @@ test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores i
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
 	@echo "lifecycle test passed: suspend blocked attach, resume restored it"
+
+# --- Multi-UE / multi-cell (ZMQ broker) — see docs/superpowers plan 2026-07-31 ------
+# A cell = eNB + GNU Radio broker + its UEs. Brokers start LAST. Demo topology:
+# 2 cells, 3 UEs (ue1+ue2 on enb-a, ue3 on enb-b).
+
+.PHONY: 4g-multi
+4g-multi: ## Bring up 2 cells + 3 UEs through the ZMQ broker (multi-UE, multi-eNB)
+	@echo "==> [1/4] EPC core + provisioner..."
+	$(COMPOSE_MULTI) up -d --build mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
+	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
+	./deploy/4g/scripts/provision-multi.sh
+	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
+	$(COMPOSE_MULTI) up -d enb-a enb-b ue1 ue2 ue3
+	@echo "==> [4/4] Starting brokers LAST (broker-a, broker-b)..."
+	sleep 5
+	$(COMPOSE_MULTI) up -d --no-deps broker-a broker-b
+	@echo "Up. UEs attach in a few seconds — check with: make status-4g"
+
+.PHONY: 4g-multi-down
+4g-multi-down: ## Tear down the multi-UE topology + volumes
+	$(COMPOSE_MULTI) --profile "*" down -v --remove-orphans
+
+.PHONY: test-4g-multi
+test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eNB
+	./deploy/4g/scripts/test-multi.sh
 
 .PHONY: capture-4g
 capture-4g: ## Start the 4G stack WITH packet capture (pcaps -> deploy/4g/pcap/)
