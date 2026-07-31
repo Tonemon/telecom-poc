@@ -32,7 +32,10 @@ mme:
         mnc: 70
       tac: 1
   security:
+    # Prefer AES (EIA2/EEA2, i.e. 128-EIA2/128-EEA2) over SNOW 3G (EIA1/EEA1)
+    # and null (EEA0). The negotiated algorithm is visible in the NAS Security
+    # Mode Command — see docs/provisioning.md (§ ciphers) and make capture-4g.
     integrity_order: [ EIA2, EIA1, EIA0 ]
-    ciphering_order: [ EEA0, EEA1, EEA2 ]
+    ciphering_order: [ EEA2, EEA1, EEA0 ]
   network_name:
     full: Open5GS
