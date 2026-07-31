@@ -20,6 +20,9 @@ services:
     depends_on: [mme]
 
   broker-a:
+    build:
+      context: ../..
+      dockerfile: deploy/images/broker.Dockerfile
     image: telecom-poc/broker:local
     environment:
       ENB_DL: "tcp://172.22.0.40:2000"
@@ -73,6 +76,9 @@ services:
     depends_on: [mme]
 
   broker-b:
+    build:
+      context: ../..
+      dockerfile: deploy/images/broker.Dockerfile
     image: telecom-poc/broker:local
     environment:
       ENB_DL: "tcp://172.22.0.50:2000"

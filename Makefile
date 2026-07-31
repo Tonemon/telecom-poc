@@ -18,7 +18,7 @@ up-4g: ## Build and start the 4G stack
 
 .PHONY: 4g-auto-down
 4g-auto-down: ## Stop and remove the whole 4G stack + volumes
-	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
+	$(COMPOSE_MULTI) --profile "*" down -v --remove-orphans
 
 .PHONY: status-4g
 status-4g: ## Show 4G service health
@@ -47,11 +47,12 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 	@echo "built ./bin/telcoctl"
 
 .PHONY: 4g-auto
-4g-auto: ## Full automated deployment: bring up everything, provision, attach, ping the internet
-	$(COMPOSE_4G) up -d --build
-	./deploy/4g/scripts/provision.sh
-	./deploy/4g/scripts/wait-for-attach.sh
-	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+4g-auto: 4g-multi ## Full automated deployment: 2 eNBs + 3 UEs, provision, attach, ping the internet
+	@for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh $$u; done
+	@for u in ue1 ue2 ue3; do \
+	  echo "== ping 8.8.8.8 from $$u =="; \
+	  $(COMPOSE_MULTI) exec -T $$u ping -I tun_srsue -c 4 8.8.8.8; \
+	done
 
 # --- Split deployment (mirrors the manual validation in docs/4G.md §5.3) ----------
 # 4g-infra brings up the operator's network (core + eNB) and provisions a subscriber,
@@ -122,7 +123,8 @@ test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores i
 
 .PHONY: 4g-multi
 4g-multi: ## Bring up 2 cells + 3 UEs through the ZMQ broker (multi-UE, multi-eNB)
-	@echo "==> [1/4] EPC core + provisioner..."
+	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
+	$(COMPOSE_MULTI) build broker-a
 	$(COMPOSE_MULTI) up -d --build mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
 	./deploy/4g/scripts/provision-multi.sh
