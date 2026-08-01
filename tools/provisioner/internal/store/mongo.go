@@ -147,13 +147,52 @@ func (m *MongoStore) List(ctx context.Context) ([]Record, error) {
 	return out, nil
 }
 
-// SetStatus stashes (barred=true) or restores (barred=false) the subscriber by
-// moving its document between the live and suspended collections. Idempotent.
+// SetStatus enforces suspend/resume via two legs. On suspend: (1) update the
+// live document to request_cancel_location=true — Open5GS's HSS change-stream
+// watcher turns that into a genuine S6a Cancel-Location-Request that detaches
+// an already-attached UE (see docs/superpowers/specs/2026-08-01-live-detach-design.md);
+// this MUST happen while the doc is still in `subscribers`, the only
+// collection the HSS watches. (2) stash the doc into `suspended_subscribers`
+// so the HSS answers USER_UNKNOWN and blocks the UE's inevitable reattach.
+// On resume: restore the doc, then clear the withdrawal flags so it isn't
+// left carrying stale barring state. Idempotent both ways.
 func (m *MongoStore) SetStatus(ctx context.Context, imsi string, barred bool) error {
 	if barred {
+		// Best-effort: if the subscriber isn't currently live (already
+		// suspended), this matches nothing — there's nothing to cancel, and
+		// move()'s existing idempotent handling covers that case below.
+		if _, err := m.subs.UpdateOne(ctx, bson.M{"imsi": imsi}, bson.M{"$set": bson.M{
+			"subscriber_status":           1,
+			"operator_determined_barring": 1,
+			"request_cancel_location":     true,
+		}}); err != nil {
+			return err
+		}
+		// Give the HSS's change-stream poller (100ms interval,
+		// vendor/open5gs/src/hss/hss-sm.c DB_POLLING_TIME) a chance to read this
+		// update — via fullDocument:"updateLookup" — while the document is still
+		// live, before we delete it out from under that lookup in move() below.
+		// Without this, the CLR can silently never fire if the poll happens to
+		// land after the delete.
+		time.Sleep(250 * time.Millisecond)
 		return m.move(ctx, m.subs, m.suspended, imsi, 1)
 	}
-	return m.move(ctx, m.suspended, m.subs, imsi, 0)
+	if err := m.move(ctx, m.suspended, m.subs, imsi, 0); err != nil {
+		return err
+	}
+	// Scoped to exactly these two fields on purpose: subscriber_status is NOT
+	// included here even though it looks symmetric with the suspend branch.
+	// move(..., 0) above already stamps subscriber_status:0 in its own write,
+	// and the HSS's IDR-skip guard for resume (vendor/open5gs/src/hss/hss-s6a-path.c:2063-2072)
+	// only fires because subscriber_status isn't part of *this* update's
+	// updatedFields. Adding it here pushes the subdata mask past that skip
+	// guard and starts sending IDRs to the MME on every resume, silently
+	// breaking the "resume sends nothing to the MME" design requirement.
+	_, err := m.subs.UpdateOne(ctx, bson.M{"imsi": imsi}, bson.M{"$set": bson.M{
+		"operator_determined_barring": 0,
+		"request_cancel_location":     false,
+	}})
+	return err
 }
 
 // move relocates a subscriber doc from `from` to `to`, stamping subscriber_status.
