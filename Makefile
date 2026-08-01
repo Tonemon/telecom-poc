@@ -1,34 +1,169 @@
 COMPOSE_4G := docker compose -f deploy/4g/docker-compose.yml
+COMPOSE_MULTI := docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml
 # Everything except the radio (enb) and the device (ue): the EPC core + provisioner.
 CORE_4G := mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 
 .PHONY: help
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: submodules
 submodules: ## Initialise and update git submodules
 	git submodule update --init --recursive
 
-.PHONY: up-4g
-up-4g: ## Build and start the 4G stack
+# =====================================================================================
+# DEPLOY — one shot
+# =====================================================================================
+
+.PHONY: 4g-auto
+4g-auto: 4g-multi ## One-shot MULTI: 2 eNBs + 3 UEs, provision, attach, ping all 3 (= 4g-multi + ping)
+	@for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh $$u; done
+	@for u in ue1 ue2 ue3; do \
+	  echo "== ping 8.8.8.8 from $$u =="; \
+	  $(COMPOSE_MULTI) exec -T $$u ping -I tun_srsue -c 4 8.8.8.8; \
+	done
+
+.PHONY: 4g-multi
+4g-multi: ## One-shot MULTI (no ping): 2 cells + 3 UEs through the ZMQ broker
+	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
+	$(COMPOSE_MULTI) build broker-a
+	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
+	./deploy/4g/scripts/provision-multi.sh
+	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
+	$(COMPOSE_MULTI) up -d enb-a enb-b ue1 ue2 ue3
+	@echo "==> [4/4] Starting brokers LAST (broker-a, broker-b)..."
+	sleep 5
+	$(COMPOSE_MULTI) up -d --no-deps broker-a broker-b
+	@echo "Up. UEs attach in a few seconds — check with: make status-4g"
+
+.PHONY: 4g-single
+4g-single: ## One-shot SINGLE: 1 eNB + 1 UE + 1 subscriber, attach + ping (the pre-multi behaviour)
+	@echo "==> [1/3] Building & starting the single-cell stack (core + enb + ue)..."
 	$(COMPOSE_4G) up -d --build
+	@echo "==> [2/3] Provisioning subscriber 999700000000001 (matches ue.conf)..."
+	./deploy/4g/scripts/provision.sh
+	./deploy/4g/scripts/wait-for-attach.sh
+	@echo "==> [3/3] Data-plane check: ping 8.8.8.8 from the UE via tun_srsue..."
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
+	@echo "Single-cell deployment attached and verified."
+
+# =====================================================================================
+# DEPLOY — in stages (the README "bring it up in stages" way, on the MULTI topology)
+#
+#   make 4g-infra              # operator network: EPC core + both eNBs (no subs, no UEs)
+#   make 4g-demo-subscribers   # provision the 3 fixed subscribers (keys match the UE configs)
+#   then EITHER:
+#   make 4g-device             # bring up ONE device (ue1) -> sub …001 -> enb-a
+#   OR:
+#   make 4g-demo-devices       # bring up all 3 devices (ue1, ue2, ue3) + brokers
+# =====================================================================================
+
+.PHONY: 4g-infra
+4g-infra: ## Bring up the operator network (EPC core + both eNBs) only — no subscribers, no UEs
+	@echo "==> [1/3] Building the broker image + EPC core + provisioner (no radio yet):"
+	@echo "          $(CORE_4G)"
+	$(COMPOSE_MULTI) build broker-a
+	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	@echo "==> [2/3] Starting the eNodeBs (enb-a, enb-b) — they S1-Setup to the MME..."
+	$(COMPOSE_MULTI) up -d enb-a enb-b
+	@echo ""
+	@echo "Network is ready: full EPC core + both eNBs are up. No subscribers provisioned yet."
+	@echo ""
+	@echo "Next — provision the 3 fixed demo subscribers:"
+	@echo "    make 4g-demo-subscribers"
+	@echo "Then bring up device(s):"
+	@echo "    make 4g-device         # one device (ue1)"
+	@echo "    make 4g-demo-devices   # all three devices"
+	@echo ""
+	@echo "Or drive the operator API by hand from your host: 'make telcoctl', then e.g.:"
+	@echo "    TELCOCTL_SERVER=http://127.0.0.1:8080 TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl list"
+
+.PHONY: 4g-demo-subscribers
+4g-demo-subscribers: ## Provision the 3 fixed demo subscribers via telcoctl (keys match the UE configs)
+	./deploy/4g/scripts/provision-multi.sh
+
+.PHONY: 4g-device
+4g-device: ## Bring up ONE device (ue1) on a running infra: attach to sub …001 via enb-a, ping
+	@echo "    (needs infra up — 'make 4g-infra' — and sub 999700000000001 — 'make 4g-demo-subscribers')"
+	@echo "==> [1/3] Starting the device ue1 (camps on enb-a)..."
+	$(COMPOSE_MULTI) up -d ue1
+	@echo "==> [2/3] Starting its cell broker (broker-a) LAST..."
+	sleep 3
+	$(COMPOSE_MULTI) up -d --no-deps broker-a
+	./deploy/4g/scripts/wait-for-attach-svc.sh ue1
+	@echo "==> [3/3] Data-plane check: ping 8.8.8.8 from ue1 via tun_srsue..."
+	$(COMPOSE_MULTI) exec -T ue1 ping -I tun_srsue -c 4 8.8.8.8
+	@echo "Device ue1 attached and data plane verified."
+
+.PHONY: 4g-demo-devices
+4g-demo-devices: ## Bring up all 3 devices (ue1, ue2, ue3) + brokers on a running infra, attach all
+	@echo "    (needs infra up — 'make 4g-infra' — and subs — 'make 4g-demo-subscribers')"
+	@echo "==> [1/3] Starting UEs ue1, ue2, ue3..."
+	$(COMPOSE_MULTI) up -d ue1 ue2 ue3
+	@echo "==> [2/3] Starting brokers (broker-a, broker-b) LAST..."
+	sleep 5
+	$(COMPOSE_MULTI) up -d --no-deps broker-a broker-b
+	@echo "==> [3/3] Waiting for all 3 devices to attach..."
+	@for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh $$u; done
+	@echo "All 3 devices attached."
+
+# =====================================================================================
+# TEARDOWN
+# =====================================================================================
 
 .PHONY: 4g-auto-down
-4g-auto-down: ## Stop and remove the whole 4G stack + volumes
+4g-auto-down: ## Tear down the whole MULTI/staged stack + volumes (core + eNBs + UEs + brokers)
+	$(COMPOSE_MULTI) --profile "*" down -v --remove-orphans
+
+.PHONY: 4g-single-down
+4g-single-down: ## Tear down the single-cell stack + volumes
 	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
+
+.PHONY: 4g-device-down
+4g-device-down: ## Stop and remove ONLY device ue1 + broker-a; leave the infra + subscribers up
+	@echo "==> Stopping and removing device ue1 + broker-a. Infra (core + eNBs) stays up."
+	$(COMPOSE_MULTI) rm -sf ue1 broker-a
+	@echo "Device ue1 removed. Bring it back with 'make 4g-device'."
+
+# =====================================================================================
+# TESTS
+# =====================================================================================
+
+.PHONY: test-4g-multi
+test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eNB
+	./deploy/4g/scripts/test-multi.sh
+
+.PHONY: test-provisioner-lifecycle
+test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores it
+	$(COMPOSE_4G) up -d --build
+	./deploy/4g/scripts/provision.sh
+	./deploy/4g/scripts/wait-for-attach.sh
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
+	./deploy/4g/scripts/assert-attach-rejected.sh
+	./deploy/4g/scripts/wait-for-attach.sh
+	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
+	@echo "lifecycle test passed: suspend blocked attach, resume restored it"
+
+# =====================================================================================
+# UTILITIES
+# =====================================================================================
+
+.PHONY: up-4g
+up-4g: ## Build and start the single-cell 4G stack
+	$(COMPOSE_4G) up -d --build
 
 .PHONY: status-4g
 status-4g: ## Show 4G service health
-	$(COMPOSE_4G) ps
+	$(COMPOSE_MULTI) ps
 
 .PHONY: logs-4g
 logs-4g: ## Tail 4G stack logs
 	$(COMPOSE_4G) logs -f
 
 .PHONY: attach-4g
-attach-4g: ## Start eNB + UE and follow their logs
+attach-4g: ## Start single eNB + UE and follow their logs
 	$(COMPOSE_4G) up -d enb ue
 	$(COMPOSE_4G) logs -f enb ue
 
@@ -45,78 +180,8 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 	docker rm telcoctl-extract >/dev/null
 	@echo "built ./bin/telcoctl"
 
-.PHONY: 4g-auto
-4g-auto: ## Full automated deployment: bring up everything, provision, attach, ping the internet
-	$(COMPOSE_4G) up -d --build
-	./deploy/4g/scripts/provision.sh
-	./deploy/4g/scripts/wait-for-attach.sh
-	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
-
-# --- Split deployment (mirrors the manual validation in docs/4G.md §5.3) ----------
-# 4g-infra brings up the operator's network (core + eNB) and provisions a subscriber,
-# but starts NO UE. 4g-device then brings up the UE and attaches it. These are meant
-# to sit ALONGSIDE the by-hand steps in §5.3, not replace them.
-
-.PHONY: 4g-infra
-4g-infra: ## Bring up the telco network (EPC core + eNB) only — no subscribers, no UE
-	@echo "==> [1/2] Building & starting the EPC core + provisioner (no radio yet):"
-	@echo "          $(CORE_4G)"
-	$(COMPOSE_4G) up -d --build $(CORE_4G)
-	@echo "==> [2/2] Starting the eNodeB (enb) — it S1-Setups to the MME..."
-	$(COMPOSE_4G) up -d enb
-	@echo ""
-	@echo "Network is ready: full EPC core + eNB are up. No subscribers provisioned yet."
-	@echo ""
-	@echo "Use the telcoctl client to create & manage subscriptions. Quick demo (adds 3):"
-	@echo "    make 4g-demo-subscribers"
-	@echo ""
-	@echo "Or add the soft-UE's own SIM by hand, so 'make 4g-device' can attach:"
-	@echo "    $(COMPOSE_4G) exec -e TELCOCTL_TOKEN=dev-operator-token provisioner \\"
-	@echo "      telcoctl add --imsi 999700000000001 --ki 465B5CE8B199B49FAA5F0A2EE238A6BC \\"
-	@echo "      --opc E8ED289DEBA952E4283B54E88E6183CA --apn internet --reason NEW_ACTIVATION"
-	@echo ""
-	@echo "Or from your host: 'make telcoctl', then point it at the published API, e.g.:"
-	@echo "    TELCOCTL_SERVER=http://127.0.0.1:8080 TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl list"
-
-.PHONY: 4g-demo-subscribers
-4g-demo-subscribers: ## Register 3 demo subscribers via telcoctl (run after 'make 4g-infra')
-	./deploy/4g/scripts/demo-subscribers.sh
-
-.PHONY: 4g-infra-down
-4g-infra-down: ## Tear down the whole stack + volumes (infra is the foundation; takes the UE too)
-	@echo "==> Tearing down the ENTIRE 4G stack (core + eNB + UE + capture sidecars) and volumes..."
-	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
-	@echo "Stack down."
-
-.PHONY: 4g-device
-4g-device: ## Bring up the UE against a running infra, wait for attach, ping the internet
-	@echo "    (needs subscriber 999700000000001 provisioned — 'make 4g-demo-subscribers' if not)"
-	@echo "==> [1/2] Starting the UE (ue) — camps on the cell and runs NAS attach..."
-	$(COMPOSE_4G) up -d ue
-	./deploy/4g/scripts/wait-for-attach.sh
-	@echo "==> [2/2] Data-plane check: ping 8.8.8.8 from the UE via tun_srsue..."
-	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 4 8.8.8.8
-	@echo "Device attached and data plane verified."
-
-.PHONY: 4g-device-down
-4g-device-down: ## Stop and remove ONLY the UE container; leave the infra running
-	@echo "==> Stopping and removing the UE container (ue). Infra (core + eNB) stays up."
-	$(COMPOSE_4G) rm -sf ue
-	@echo "UE removed. Bring it back with 'make 4g-device'."
-
-.PHONY: test-provisioner-lifecycle
-test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores it
-	$(COMPOSE_4G) up -d --build
-	./deploy/4g/scripts/provision.sh
-	./deploy/4g/scripts/wait-for-attach.sh
-	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
-	./deploy/4g/scripts/assert-attach-rejected.sh
-	./deploy/4g/scripts/wait-for-attach.sh
-	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
-	@echo "lifecycle test passed: suspend blocked attach, resume restored it"
-
 .PHONY: capture-4g
-capture-4g: ## Start the 4G stack WITH packet capture (pcaps -> deploy/4g/pcap/)
+capture-4g: ## Start the single-cell stack WITH packet capture (pcaps -> deploy/4g/pcap/)
 	$(COMPOSE_4G) --profile capture up -d --build
 	./deploy/4g/scripts/add-subscriber.sh
 	./deploy/4g/scripts/wait-for-attach.sh
