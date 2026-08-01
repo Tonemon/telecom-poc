@@ -136,15 +136,16 @@ test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eN
 	./deploy/4g/scripts/test-multi.sh
 
 .PHONY: test-provisioner-lifecycle
-test-provisioner-lifecycle: ## Prove suspend blocks attach and resume restores it
+test-provisioner-lifecycle: ## Prove suspend detaches an active session and blocks new attach; resume restores both
 	$(COMPOSE_4G) up -d --build
 	./deploy/4g/scripts/provision.sh
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
+	./deploy/4g/scripts/assert-live-detach.sh
 	./deploy/4g/scripts/assert-attach-rejected.sh
 	./deploy/4g/scripts/wait-for-attach.sh
 	$(COMPOSE_4G) exec -T ue ping -I tun_srsue -c 2 8.8.8.8
-	@echo "lifecycle test passed: suspend blocked attach, resume restored it"
+	@echo "lifecycle test passed: suspend detached the live session and blocked new attach, resume restored both"
 
 # =====================================================================================
 # UTILITIES
