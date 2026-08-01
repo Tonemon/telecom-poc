@@ -31,12 +31,15 @@ services:
     depends_on:
       mongo: { condition: service_healthy }
     networks:
-      - epc
+      epc:
+        ipv4_address: 172.22.0.31
     entrypoint: ["mongosh", "--host", "mongo", "--quiet", "--eval"]
     command:
       - >-
         try { rs.status(); print('rs0 already initiated'); }
         catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); print('rs0 initiated'); }
+        while (!db.hello().isWritablePrimary) { sleep(200); }
+        print('rs0 primary');
 
   # Go provisioning server (BSS-side). Owns the Milenage crypto and the sole
   # write path to the subscriber DB; telcoctl (client) talks to its REST API.

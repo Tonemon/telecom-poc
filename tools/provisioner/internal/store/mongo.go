@@ -168,11 +168,26 @@ func (m *MongoStore) SetStatus(ctx context.Context, imsi string, barred bool) er
 		}}); err != nil {
 			return err
 		}
+		// Give the HSS's change-stream poller (100ms interval,
+		// vendor/open5gs/src/hss/hss-sm.c DB_POLLING_TIME) a chance to read this
+		// update — via fullDocument:"updateLookup" — while the document is still
+		// live, before we delete it out from under that lookup in move() below.
+		// Without this, the CLR can silently never fire if the poll happens to
+		// land after the delete.
+		time.Sleep(250 * time.Millisecond)
 		return m.move(ctx, m.subs, m.suspended, imsi, 1)
 	}
 	if err := m.move(ctx, m.suspended, m.subs, imsi, 0); err != nil {
 		return err
 	}
+	// Scoped to exactly these two fields on purpose: subscriber_status is NOT
+	// included here even though it looks symmetric with the suspend branch.
+	// move(..., 0) above already stamps subscriber_status:0 in its own write,
+	// and the HSS's IDR-skip guard for resume (vendor/open5gs/src/hss/hss-s6a-path.c:2063-2072)
+	// only fires because subscriber_status isn't part of *this* update's
+	// updatedFields. Adding it here pushes the subdata mask past that skip
+	// guard and starts sending IDRs to the MME on every resume, silently
+	// breaking the "resume sends nothing to the MME" design requirement.
 	_, err := m.subs.UpdateOne(ctx, bson.M{"imsi": imsi}, bson.M{"$set": bson.M{
 		"operator_determined_barring": 0,
 		"request_cancel_location":     false,
