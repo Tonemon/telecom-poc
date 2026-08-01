@@ -147,13 +147,37 @@ func (m *MongoStore) List(ctx context.Context) ([]Record, error) {
 	return out, nil
 }
 
-// SetStatus stashes (barred=true) or restores (barred=false) the subscriber by
-// moving its document between the live and suspended collections. Idempotent.
+// SetStatus enforces suspend/resume via two legs. On suspend: (1) update the
+// live document to request_cancel_location=true — Open5GS's HSS change-stream
+// watcher turns that into a genuine S6a Cancel-Location-Request that detaches
+// an already-attached UE (see docs/superpowers/specs/2026-08-01-live-detach-design.md);
+// this MUST happen while the doc is still in `subscribers`, the only
+// collection the HSS watches. (2) stash the doc into `suspended_subscribers`
+// so the HSS answers USER_UNKNOWN and blocks the UE's inevitable reattach.
+// On resume: restore the doc, then clear the withdrawal flags so it isn't
+// left carrying stale barring state. Idempotent both ways.
 func (m *MongoStore) SetStatus(ctx context.Context, imsi string, barred bool) error {
 	if barred {
+		// Best-effort: if the subscriber isn't currently live (already
+		// suspended), this matches nothing — there's nothing to cancel, and
+		// move()'s existing idempotent handling covers that case below.
+		if _, err := m.subs.UpdateOne(ctx, bson.M{"imsi": imsi}, bson.M{"$set": bson.M{
+			"subscriber_status":           1,
+			"operator_determined_barring": 1,
+			"request_cancel_location":     true,
+		}}); err != nil {
+			return err
+		}
 		return m.move(ctx, m.subs, m.suspended, imsi, 1)
 	}
-	return m.move(ctx, m.suspended, m.subs, imsi, 0)
+	if err := m.move(ctx, m.suspended, m.subs, imsi, 0); err != nil {
+		return err
+	}
+	_, err := m.subs.UpdateOne(ctx, bson.M{"imsi": imsi}, bson.M{"$set": bson.M{
+		"operator_determined_barring": 0,
+		"request_cancel_location":     false,
+	}})
+	return err
 }
 
 // move relocates a subscriber doc from `from` to `to`, stamping subscriber_status.

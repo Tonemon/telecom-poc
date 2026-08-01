@@ -98,6 +98,7 @@ func (s Subscriber) Document() bson.M {
 		"network_access_mode":         0,
 		"subscriber_status":           0,
 		"operator_determined_barring": 0,
+		"request_cancel_location":     false,
 		"subscribed_rau_tau_timer":    12,
 		"__v":                         0,
 	}
