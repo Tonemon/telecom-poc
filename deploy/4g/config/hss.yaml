@@ -1,4 +1,5 @@
-db_uri: mongodb://mongo/open5gs
+db_uri: mongodb://mongo/open5gs?replicaSet=rs0
+use_mongodb_change_stream: true
 logger:
   level: info
 global:

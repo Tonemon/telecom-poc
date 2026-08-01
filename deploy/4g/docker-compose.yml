@@ -45,7 +45,7 @@ services:
       context: ../../tools/provisioner
     image: telecom-poc/provisioner:local
     environment:
-      PROVISIONER_MONGODB_URI: "mongodb://172.22.0.2/open5gs"
+      PROVISIONER_MONGODB_URI: "mongodb://172.22.0.2/open5gs?replicaSet=rs0"
       PROVISIONER_API_TOKEN: "dev-operator-token"
       PROVISIONER_LISTEN_ADDR: ":8080"
       PROVISIONER_ACTOR: "operator"
@@ -56,6 +56,7 @@ services:
         ipv4_address: 172.22.0.30
     depends_on:
       mongo: { condition: service_healthy }
+      mongo-init: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 5s
@@ -93,6 +94,7 @@ services:
         ipv4_address: 172.22.0.8
     depends_on:
       mongo: { condition: service_healthy }
+      mongo-init: { condition: service_completed_successfully }
 
   pcrf:
     image: telecom-poc/open5gs:local
