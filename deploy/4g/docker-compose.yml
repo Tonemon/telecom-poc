@@ -11,6 +11,7 @@ networks:
 services:
   mongo:
     image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     networks:
       epc:
         ipv4_address: 172.22.0.2
@@ -21,6 +22,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
+  # One-shot: bootstraps the single-node replica set `mongo` needs for
+  # change streams (required by Task 2's HSS live-detach wiring). Idempotent
+  # — safe to re-run against an already-initiated replica set.
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo: { condition: service_healthy }
+    networks:
+      - epc
+    entrypoint: ["mongosh", "--host", "mongo", "--quiet", "--eval"]
+    command:
+      - >-
+        try { rs.status(); print('rs0 already initiated'); }
+        catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); print('rs0 initiated'); }
 
   # Go provisioning server (BSS-side). Owns the Milenage crypto and the sole
   # write path to the subscriber DB; telcoctl (client) talks to its REST API.
