@@ -1,0 +1,64 @@
+From 63281cd793fad2a24576dd10a6ee5c14fdaab4ec Mon Sep 17 00:00:00 2001
+From: Tony <18640201+Tonemon@users.noreply.github.com>
+Date: Sun, 2 Aug 2026 13:34:53 +0200
+Subject: [PATCH] feat(nas): retry via T3402 on attach-reject cause #8
+
+parse_attach_reject never armed a retry timer for EMM cause #8 (EPS
+services and non-EPS services not allowed), only a bare TODO. A UE
+rejected with this cause (e.g. an immediate reattach while still
+barred) stayed EMM-DEREGISTERED indefinitely with no way to notice
+service being restored.
+
+Arms the existing t3402 timer (already implemented for the
+T3410-max-attempts path) on this cause too, matching real 3GPP
+fallback behaviour. t3402_duration_ms is lab-shortened from the spec's
+12m default to 15s, same rationale as the pre-existing
+reattach_timer_duration_ms.
+---
+ srsue/hdr/stack/upper/nas.h  |  6 +++++-
+ srsue/src/stack/upper/nas.cc | 12 ++++++++++++
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/srsue/hdr/stack/upper/nas.h b/srsue/hdr/stack/upper/nas.h
+index bf3fdaa69..ea91f0af2 100644
+--- a/srsue/hdr/stack/upper/nas.h
++++ b/srsue/hdr/stack/upper/nas.h
+@@ -141,7 +141,11 @@ private:
+   srsran::timer_handler::unique_timer reattach_timer; // started to trigger delayed re-attach
+ 
+   // Values according to TS 24.301 Sec 10.2
+-  const uint32_t t3402_duration_ms          = 12 * 60 * 1000; // 12m
++  // t3402_duration_ms deviates from the 12m spec default: shortened for this
++  // lab so an attach-reject retry (see parse_attach_reject) is observable
++  // within a normal test run, same rationale as reattach_timer_duration_ms
++  // below.
++  const uint32_t t3402_duration_ms          = 15 * 1000;      // 15s (spec default: 12m)
+   const uint32_t t3410_duration_ms          = 15 * 1000;      // 15s
+   const uint32_t t3411_duration_ms          = 10 * 1000;      // 10s
+   const uint32_t t3421_duration_ms          = 15 * 1000;      // 15s
+diff --git a/srsue/src/stack/upper/nas.cc b/srsue/src/stack/upper/nas.cc
+index 18ba9bf49..ef9ee5288 100644
+--- a/srsue/src/stack/upper/nas.cc
++++ b/srsue/src/stack/upper/nas.cc
+@@ -1067,6 +1067,18 @@ void nas::parse_attach_reject(uint32_t lcid, unique_byte_buffer_t pdu, const uin
+ 
+   // TODO: handle other relevant reject causes
+ 
++  // Cause #8: network-initiated barring (e.g. operator-determined barring /
++  // subscription withdrawal). Previously fell through unhandled entirely --
++  // no timer armed, so the UE stayed EMM-DEREGISTERED forever with no way to
++  // notice service being restored. Real 3GPP behaviour is to fall back to
++  // T3402 and retry periodically; mirrors the T3410-max-attempts path above,
++  // which already does the same thing on the same timer.
++  if (attach_rej.emm_cause == LIBLTE_MME_EMM_CAUSE_EPS_SERVICES_AND_NON_EPS_SERVICES_NOT_ALLOWED) {
++    logger.warning("Attach rejected (cause #8): starting T3402 to retry later");
++    enter_emm_deregistered(emm_state_t::deregistered_substate_t::plmn_search);
++    t3402.run();
++  }
++
+   if (attach_rej.emm_cause == LIBLTE_MME_EMM_CAUSE_ROAMING_NOT_ALLOWED_IN_THIS_TRACKING_AREA ||
+       attach_rej.emm_cause == LIBLTE_MME_EMM_CAUSE_EPS_SERVICES_NOT_ALLOWED_IN_THIS_PLMN ||
+       attach_rej.emm_cause == LIBLTE_MME_EMM_CAUSE_NETWORK_FAILURE) {
+-- 
+2.43.0
+

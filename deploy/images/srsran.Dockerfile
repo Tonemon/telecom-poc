@@ -7,6 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY vendor/srsRAN_4G /src/srsRAN_4G
 WORKDIR /src/srsRAN_4G
+# See docs/4G.md for what this patches and why (T3402 retry on attach-reject
+# cause #8). Applied at build time rather than committed as a submodule
+# commit: the submodule's origin is the real upstream srsRAN_4G repo, which
+# we have no push access to, so a commit made only in the local submodule
+# clone would be unreachable from a fresh `git clone --recursive`.
+COPY deploy/patches/srsran-nas-t3402.patch /tmp/
+# The submodule's .git is a gitlink pointing at the parent repo's
+# .git/modules (outside this build context), so it's a dangling reference
+# here; drop it, it isn't needed to compile.
+RUN rm -rf .git && git apply /tmp/srsran-nas-t3402.patch
 RUN mkdir build && cd build && cmake .. && make -j"$(nproc)" && make install && ldconfig
 
 FROM ubuntu:22.04
