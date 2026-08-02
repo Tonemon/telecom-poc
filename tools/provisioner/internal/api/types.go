@@ -68,6 +68,12 @@ type NetworkInfo struct {
 	QCI         int    `json:"qci,omitempty"`
 	BearerCount int    `json:"bearer_count,omitempty"`
 	PDUState    string `json:"pdu_state,omitempty"`
+	// DL/UL are the MME's *live* in-memory AMBR, which can differ from the
+	// SubscriberView.DL/UL above (the provisioned value) for as long as a
+	// plan change hasn't reached this UE's next attach yet -- see
+	// docs/scenarios/2-change-subscriber-plan.md.
+	DL string `json:"dl,omitempty"`
+	UL string `json:"ul,omitempty"`
 }
 
 type ErrorResponse struct {

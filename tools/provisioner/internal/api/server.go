@@ -175,6 +175,22 @@ func ambrStr(a subscriber.AMBR) string {
 	return strconv.Itoa(a.Value) + unit
 }
 
+// bpsStr formats a raw bps figure (as the MME reports live AMBR) the same
+// way ambrStr formats the provisioned value, so the two are visually
+// comparable.
+func bpsStr(bps int) string {
+	units := []struct {
+		div    int
+		suffix string
+	}{{1_000_000_000_000, "T"}, {1_000_000_000, "G"}, {1_000_000, "M"}, {1_000, "K"}}
+	for _, u := range units {
+		if bps != 0 && bps%u.div == 0 {
+			return strconv.Itoa(bps/u.div) + u.suffix
+		}
+	}
+	return strconv.Itoa(bps) + "bps"
+}
+
 func view(r store.Record, live map[string]network.Info) SubscriberView {
 	status := "active"
 	if r.Barred {
@@ -189,6 +205,7 @@ func view(r store.Record, live map[string]network.Info) SubscriberView {
 			CMState: info.CMState, MMState: info.MMState,
 			ENBID: info.ENBID, CellID: info.CellID, TAC: info.TAC,
 			APN: info.APN, QCI: info.QCI, BearerCount: info.BearerCount, PDUState: info.PDUState,
+			DL: bpsStr(info.AMBRDownlinkBps), UL: bpsStr(info.AMBRUplinkBps),
 		}
 	}
 	return v

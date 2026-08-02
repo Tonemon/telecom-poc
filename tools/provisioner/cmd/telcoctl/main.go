@@ -179,7 +179,7 @@ func renderGet(v api.SubscriberView) {
 	if v.StaticIPv4 != "" {
 		fmt.Fprintf(w, "Static IP\t%s\n", v.StaticIPv4)
 	}
-	for i, line := range networkLines(v.Network) {
+	for i, line := range networkLines(v) {
 		label := ""
 		if i == 0 {
 			label = "Network"
@@ -202,7 +202,7 @@ func renderList(vs []api.SubscriberView) {
 	fmt.Fprintln(w, "IMSI\tSTATUS\tPLAN\tNETWORK\tLAST")
 	for _, v := range vs {
 		fmt.Fprintf(w, "%s\t%s\t%s/%s\t%s\t%s\n",
-			v.IMSI, v.Status, v.DL, v.UL, networkSummary(v.Network), lastSummary(v))
+			v.IMSI, v.Status, v.DL, v.UL, networkSummary(v), lastSummary(v))
 	}
 	w.Flush()
 }
@@ -213,7 +213,8 @@ func renderList(vs []api.SubscriberView) {
 // attached, or the core network was unreachable when we asked) -- distinct
 // from "idle", which is a UE that's attached with a live PDN session but no
 // active radio connection right now (normal LTE power-saving behaviour).
-func networkLines(n *api.NetworkInfo) []string {
+func networkLines(v api.SubscriberView) []string {
+	n := v.Network
 	if n == nil {
 		return []string{"not registered"}
 	}
@@ -235,6 +236,12 @@ func networkLines(n *api.NetworkInfo) []string {
 		}
 		detail = append(detail, pdn)
 	}
+	if planPending(v) {
+		// The MME's live AMBR still differs from the provisioned plan --
+		// signaled already, but only takes effect on the UE's next attach.
+		// See docs/scenarios/2-change-subscriber-plan.md.
+		detail = append(detail, fmt.Sprintf("AMBR %s/%s (plan not yet applied, reattach pending)", n.DL, n.UL))
+	}
 	if len(detail) > 0 {
 		lines = append(lines, strings.Join(detail, " · "))
 	}
@@ -242,7 +249,8 @@ func networkLines(n *api.NetworkInfo) []string {
 }
 
 // networkSummary is the one-cell version of networkLines, for the list table.
-func networkSummary(n *api.NetworkInfo) string {
+func networkSummary(v api.SubscriberView) string {
+	n := v.Network
 	if n == nil {
 		return "-"
 	}
@@ -250,7 +258,18 @@ func networkSummary(n *api.NetworkInfo) string {
 	if n.CellID != 0 {
 		s += fmt.Sprintf(" (cell %d)", n.CellID)
 	}
+	if planPending(v) {
+		s += " · plan pending"
+	}
 	return s
+}
+
+// planPending reports whether the MME's live AMBR still differs from the
+// provisioned plan -- the signaled-but-not-enforced window every plan
+// change goes through until the UE's next attach.
+func planPending(v api.SubscriberView) bool {
+	return v.Network != nil && v.Network.DL != "" &&
+		(v.Network.DL != v.DL || v.Network.UL != v.UL)
 }
 
 func lastSummary(v api.SubscriberView) string {

@@ -22,6 +22,13 @@ type Info struct {
 	QCI         int
 	BearerCount int
 	PDUState    string
+	// AMBRDownlinkBps/AMBRUplinkBps are the MME's live in-memory AMBR (bps) --
+	// what mme_s6a_handle_idr last wrote, not necessarily what the UE's
+	// current bearer was actually given (that's only ever sent at attach).
+	// See docs/scenarios/2-change-subscriber-plan.md for why the two can
+	// differ.
+	AMBRDownlinkBps int
+	AMBRUplinkBps   int
 }
 
 type ueInfoResponse struct {
@@ -41,6 +48,10 @@ type ueInfoItem struct {
 			TAC int `json:"tac"`
 		} `json:"tai"`
 	} `json:"location"`
+	AMBR struct {
+		Downlink int `json:"downlink"`
+		Uplink   int `json:"uplink"`
+	} `json:"ambr"`
 	PDN []struct {
 		APN         string `json:"apn"`
 		QCI         int    `json:"qci"`
@@ -93,6 +104,7 @@ func (c *MMEClient) FetchAll(ctx context.Context) (info map[string]Info, reachab
 		i := Info{
 			CMState: item.CMState, MMState: item.MMState,
 			ENBID: item.ENB.ENBID, CellID: item.ENB.CellID, TAC: item.Location.TAI.TAC,
+			AMBRDownlinkBps: item.AMBR.Downlink, AMBRUplinkBps: item.AMBR.Uplink,
 		}
 		if len(item.PDN) > 0 {
 			i.APN = item.PDN[0].APN
