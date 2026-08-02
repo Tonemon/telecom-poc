@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/telecom-poc/provisioner/internal/api"
 )
@@ -25,9 +27,12 @@ Usage:
   telcoctl resume      <imsi> --reason PAYMENT_RECEIVED|RECOVERED|CLEARED
   telcoctl set-plan    <imsi> --dl 100M --ul 50M --reason UPGRADE|DOWNGRADE|PROMOTION
   telcoctl set-ip      <imsi> <ipv4|--clear> --reason ENTERPRISE|M2M|IOT
-  telcoctl list
-  telcoctl get         <imsi>
+  telcoctl list        [--json]
+  telcoctl get         <imsi> [--json]
   telcoctl history     <imsi>
+list/get show a human-readable summary by default (subscriber record plus,
+when known, the UE's live network state from the MME) -- pass --json for
+the full structured data.
 Env: TELCOCTL_SERVER (default http://127.0.0.1:8080), TELCOCTL_TOKEN`)
 }
 
@@ -58,6 +63,7 @@ func main() {
 
 	reason, _, args := popFlag(args, "reason")
 	note, _, args := popFlag(args, "note")
+	_, jsonOut, args := popFlag(args, "json")
 
 	var err error
 	switch cmd {
@@ -114,13 +120,21 @@ func main() {
 		var v []api.SubscriberView
 		v, err = c.List()
 		if err == nil {
-			printJSON(v)
+			if jsonOut {
+				printJSON(v)
+			} else {
+				renderList(v)
+			}
 		}
 	case "get":
 		var v api.SubscriberView
 		v, err = c.Get(arg0(args))
 		if err == nil {
-			printJSON(v)
+			if jsonOut {
+				printJSON(v)
+			} else {
+				renderGet(v)
+			}
 		}
 	case "history":
 		h, herr := c.History(arg0(args))
@@ -153,4 +167,105 @@ func arg1(a []string) string {
 func printJSON(v any) {
 	b, _ := json.MarshalIndent(v, "", "  ")
 	fmt.Println(string(b))
+}
+
+// renderGet prints one subscriber as a labeled summary: the provisioning
+// record (what the operator set) plus, when known, the UE's live network
+// state (what it's actually doing right now) from the MME.
+func renderGet(v api.SubscriberView) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintf(w, "IMSI\t%s\n", v.IMSI)
+	fmt.Fprintf(w, "Status\t%s (%s/%s)\n", v.Status, v.DL, v.UL)
+	if v.StaticIPv4 != "" {
+		fmt.Fprintf(w, "Static IP\t%s\n", v.StaticIPv4)
+	}
+	for i, line := range networkLines(v.Network) {
+		label := ""
+		if i == 0 {
+			label = "Network"
+		}
+		fmt.Fprintf(w, "%s\t%s\n", label, line)
+	}
+	if v.LastAction != "" {
+		fmt.Fprintf(w, "Last\t%s / %s\n", v.LastAction, v.LastReason)
+	}
+	w.Flush()
+}
+
+// renderList prints one row per subscriber, compact enough to scan.
+func renderList(vs []api.SubscriberView) {
+	if len(vs) == 0 {
+		fmt.Println("no subscribers")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(w, "IMSI\tSTATUS\tPLAN\tNETWORK\tLAST")
+	for _, v := range vs {
+		fmt.Fprintf(w, "%s\t%s\t%s/%s\t%s\t%s\n",
+			v.IMSI, v.Status, v.DL, v.UL, networkSummary(v.Network), lastSummary(v))
+	}
+	w.Flush()
+}
+
+// networkLines renders a UE's live state for the multi-line `get` view:
+// connection state on its own line, then cell/PDN details if any are known.
+// A nil Network means the MME has no record of this IMSI at all (never
+// attached, or the core network was unreachable when we asked) -- distinct
+// from "idle", which is a UE that's attached with a live PDN session but no
+// active radio connection right now (normal LTE power-saving behaviour).
+func networkLines(n *api.NetworkInfo) []string {
+	if n == nil {
+		return []string{"not registered"}
+	}
+	lines := []string{joinNonEmpty(" · ", n.CMState, n.MMState)}
+	var detail []string
+	if n.CellID != 0 {
+		detail = append(detail, fmt.Sprintf("cell %d (enb %d)", n.CellID, n.ENBID))
+	}
+	if n.TAC != 0 {
+		detail = append(detail, fmt.Sprintf("TAC %d", n.TAC))
+	}
+	if n.APN != "" {
+		pdn := "PDN " + n.APN
+		if n.QCI != 0 {
+			pdn += fmt.Sprintf(" · QCI %d", n.QCI)
+		}
+		if n.PDUState != "" {
+			pdn += " · " + n.PDUState
+		}
+		detail = append(detail, pdn)
+	}
+	if len(detail) > 0 {
+		lines = append(lines, strings.Join(detail, " · "))
+	}
+	return lines
+}
+
+// networkSummary is the one-cell version of networkLines, for the list table.
+func networkSummary(n *api.NetworkInfo) string {
+	if n == nil {
+		return "-"
+	}
+	s := n.CMState
+	if n.CellID != 0 {
+		s += fmt.Sprintf(" (cell %d)", n.CellID)
+	}
+	return s
+}
+
+func lastSummary(v api.SubscriberView) string {
+	if v.LastAction == "" {
+		return "-"
+	}
+	return v.LastAction + "/" + v.LastReason
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
 }

@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/store"
 )
 
@@ -15,7 +16,7 @@ func TestClient_RoundTrip(t *testing.T) {
 		}
 		return b
 	}
-	ts := httptest.NewServer(NewServer(store.NewFake(), testToken, "op", fixedKey).Handler())
+	ts := httptest.NewServer(NewServer(store.NewFake(), testToken, "op", fixedKey, network.NewMMEClient("")).Handler())
 	defer ts.Close()
 	c := NewClient(ts.URL, testToken)
 
@@ -38,7 +39,7 @@ func TestClient_RoundTrip(t *testing.T) {
 
 func TestClient_SurfacesServerError(t *testing.T) {
 	fixedKey := func() []byte { return make([]byte, 16) }
-	ts := httptest.NewServer(NewServer(store.NewFake(), testToken, "op", fixedKey).Handler())
+	ts := httptest.NewServer(NewServer(store.NewFake(), testToken, "op", fixedKey, network.NewMMEClient("")).Handler())
 	defer ts.Close()
 	c := NewClient(ts.URL, testToken)
 	if _, err := c.Issue(IssueRequest{}); err == nil { // missing reason -> 400

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/store"
 )
 
@@ -14,7 +15,7 @@ const testToken = "test-token"
 
 func newTestServer() *httptest.Server {
 	fixedKey := func() []byte { return bytes.Repeat([]byte{0xAB}, 16) }
-	srv := NewServer(store.NewFake(), testToken, "test-operator", fixedKey)
+	srv := NewServer(store.NewFake(), testToken, "test-operator", fixedKey, network.NewMMEClient(""))
 	return httptest.NewServer(srv.Handler())
 }
 

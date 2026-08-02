@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/telecom-poc/provisioner/internal/milenage"
+	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/profile"
 	"github.com/telecom-poc/provisioner/internal/provisioning"
 	"github.com/telecom-poc/provisioner/internal/store"
@@ -28,10 +29,11 @@ type Server struct {
 	token  string
 	actor  string
 	keygen func() []byte
+	mme    *network.MMEClient
 }
 
-func NewServer(st store.Store, token, actor string, keygen func() []byte) *Server {
-	return &Server{st: st, token: token, actor: actor, keygen: keygen}
+func NewServer(st store.Store, token, actor string, keygen func() []byte, mme *network.MMEClient) *Server {
+	return &Server{st: st, token: token, actor: actor, keygen: keygen, mme: mme}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -173,15 +175,23 @@ func ambrStr(a subscriber.AMBR) string {
 	return strconv.Itoa(a.Value) + unit
 }
 
-func view(r store.Record) SubscriberView {
+func view(r store.Record, live map[string]network.Info) SubscriberView {
 	status := "active"
 	if r.Barred {
 		status = "suspended"
 	}
-	return SubscriberView{
+	v := SubscriberView{
 		IMSI: r.IMSI, Status: status, DL: ambrStr(r.DL), UL: ambrStr(r.UL),
 		StaticIPv4: r.StaticIPv4, LastAction: r.LastAction, LastReason: r.LastReason,
 	}
+	if info, ok := live[r.IMSI]; ok {
+		v.Network = &NetworkInfo{
+			CMState: info.CMState, MMState: info.MMState,
+			ENBID: info.ENBID, CellID: info.CellID, TAC: info.TAC,
+			APN: info.APN, QCI: info.QCI, BearerCount: info.BearerCount, PDUState: info.PDUState,
+		}
+	}
+	return v
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -190,9 +200,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	live, _ := s.mme.FetchAll(r.Context())
 	out := make([]SubscriberView, 0, len(recs))
 	for _, rec := range recs {
-		out = append(out, view(rec))
+		out = append(out, view(rec, live))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -207,7 +218,8 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, view(*rec))
+	live, _ := s.mme.FetchAll(r.Context())
+	writeJSON(w, http.StatusOK, view(*rec, live))
 }
 
 func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {

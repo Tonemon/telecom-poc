@@ -45,13 +45,29 @@ type IPRequest struct {
 }
 
 type SubscriberView struct {
-	IMSI       string `json:"imsi"`
-	Status     string `json:"status"` // "active" | "suspended"
-	DL         string `json:"dl,omitempty"`
-	UL         string `json:"ul,omitempty"`
-	StaticIPv4 string `json:"static_ipv4,omitempty"`
-	LastAction string `json:"last_action,omitempty"`
-	LastReason string `json:"last_reason,omitempty"`
+	IMSI       string       `json:"imsi"`
+	Status     string       `json:"status"` // "active" | "suspended"
+	DL         string       `json:"dl,omitempty"`
+	UL         string       `json:"ul,omitempty"`
+	StaticIPv4 string       `json:"static_ipv4,omitempty"`
+	LastAction string       `json:"last_action,omitempty"`
+	LastReason string       `json:"last_reason,omitempty"`
+	Network    *NetworkInfo `json:"network,omitempty"` // nil if not currently connected (or MME unreachable)
+}
+
+// NetworkInfo is the subscriber's live state as last reported by the MME --
+// distinct from the provisioning record above, which is what the operator
+// set, not what the device is actually doing right now.
+type NetworkInfo struct {
+	CMState     string `json:"cm_state"` // "connected" | "idle"
+	MMState     string `json:"mm_state"` // "registered" | "deregistered"
+	ENBID       int    `json:"enb_id,omitempty"`
+	CellID      int    `json:"cell_id,omitempty"`
+	TAC         int    `json:"tac,omitempty"`
+	APN         string `json:"apn,omitempty"`
+	QCI         int    `json:"qci,omitempty"`
+	BearerCount int    `json:"bearer_count,omitempty"`
+	PDUState    string `json:"pdu_state,omitempty"`
 }
 
 type ErrorResponse struct {
