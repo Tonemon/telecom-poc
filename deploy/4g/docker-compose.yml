@@ -191,6 +191,7 @@ services:
 
   ue:
     image: telecom-poc/srsran:local
+    hostname: iphone-6
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/ue.conf:/conf/ue.conf:ro"

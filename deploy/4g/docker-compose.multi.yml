@@ -36,6 +36,7 @@ services:
 
   ue1:
     image: telecom-poc/srsran:local
+    hostname: iphone-6
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue1.conf:/conf/ue.conf:ro"
@@ -50,6 +51,7 @@ services:
 
   ue2:
     image: telecom-poc/srsran:local
+    hostname: pixel-8
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue2.conf:/conf/ue.conf:ro"
@@ -94,6 +96,7 @@ services:
 
   ue3:
     image: telecom-poc/srsran:local
+    hostname: samsung-4
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue3.conf:/conf/ue.conf:ro"
