@@ -43,6 +43,16 @@ fi
 echo "PASS: suspend caused real packet loss on the live session (live detach enforced)."
 rm -f "$PING_LOG"
 
+# eth0 has no internet reachability of its own (see docs/4G.md §2), so a
+# plain ping (no -I) must fail completely while suspended too -- not just
+# the tun_srsue-bound one above -- proving there's no fallback path.
+if $COMPOSE exec -T ue ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
+  echo "FAIL: plain ping (no -I) succeeded while suspended — eth0 is leaking internet access" >&2
+  tctl resume "$IMSI" --reason CLEARED || true
+  exit 1
+fi
+echo "PASS: plain ping (no -I) also fails while suspended (no eth0 fallback)."
+
 tctl resume "$IMSI" --reason CLEARED --note "live-detach test"
 echo "Resumed $IMSI; confirming the UE has working connectivity again (it reattaches on its own per REATTACH_REQUIRED)..."
 
@@ -74,3 +84,7 @@ fi
 echo "PASS: UE reattached after resume."
 
 $COMPOSE exec -T ue ping -I tun_srsue -c 2 8.8.8.8
+
+# And a plain ping (no -I) works too, via the maintained default route.
+$COMPOSE exec -T ue ping -c 2 8.8.8.8
+echo "PASS: plain ping (no -I) also works again after reattach."

@@ -191,9 +191,10 @@ services:
 
   ue:
     image: telecom-poc/srsran:local
-    command: ["srsue", "/conf/ue.conf"]
+    command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/ue.conf:/conf/ue.conf:ro"
+      - "./scripts/ue-entrypoint.sh:/scripts/ue-entrypoint.sh:ro"
       - "./pcap:/pcap"
     networks:
       epc:

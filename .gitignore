@@ -19,3 +19,6 @@ deploy/**/.env
 # Captured packet traces (analyze in Wireshark, do not commit)
 deploy/**/pcap/*.pcap
 deploy/**/pcap/*.pcapng
+
+# Programs
+bin/telcoctl

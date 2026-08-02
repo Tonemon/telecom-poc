@@ -13,7 +13,7 @@ FROM ubuntu:22.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libfftw3-single3 libmbedcrypto7 libmbedtls14 libboost-program-options1.74.0 \
-      libconfig++9v5 libsctp1 libzmq5 iproute2 iputils-ping ca-certificates \
+      libconfig++9v5 libsctp1 libzmq5 iproute2 iptables iputils-ping ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local /usr/local
 RUN ldconfig
