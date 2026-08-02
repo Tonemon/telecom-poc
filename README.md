@@ -25,6 +25,18 @@ make 4g-device-down       # remove ONLY device ue1 + broker-a (infra keeps runni
 make 4g-auto-down         # tear the whole stack down (infra is the foundation, so the UEs go too)
 ```
 
+## Docs
+
+- [`docs/THEORY.md`](docs/THEORY.md) - background theory
+- [`docs/4G.md`](docs/4G.md) - architecture & validation walkthrough
+
+Parts (deep dives):
+- [`docs/parts/1-provisioning.md`](docs/parts/1-provisioning.md) - provisioning, crypto, suspend/resume enforcement
+- [`docs/parts/2-multi-ue-broker.md`](docs/parts/2-multi-ue-broker.md) - multi-UE / multi-cell (ZMQ broker)
+
+Scenarios (runnable walkthroughs):
+- [`docs/scenarios/suspend-resume.md`](docs/scenarios/suspend-resume.md) - provision, suspend, and resume a subscriber
+
 ## Layout
 
 - `deploy/` - Docker Compose stacks and configs
