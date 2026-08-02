@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Suspend the subscriber, recreate the UE (pristine NAS state), and assert it
 # does NOT get an IP within the timeout (attach rejected by HSS via
-# subscriber_status=barred). Then resume and recreate the UE so a following
-# wait-for-attach can succeed. We force-recreate (not restart) so the UE never
-# reuses a stored .ctxt/GUTI from a prior rejected attempt.
+# subscriber_status=barred). Then resume; the UE regains connectivity on its
+# own (a following wait-for-attach picks that up). We force-recreate (not
+# restart) before suspending so the UE never reuses a stored .ctxt/GUTI from
+# a prior rejected attempt.
 set -euo pipefail
 
 COMPOSE="docker compose -f deploy/4g/docker-compose.yml"
@@ -27,5 +28,4 @@ done
 echo "PASS: suspended UE did not attach."
 
 tctl resume "$IMSI" --reason PAYMENT_RECEIVED --note "lifecycle test"
-$COMPOSE up -d --force-recreate enb ue >/dev/null 2>&1
-echo "Resumed $IMSI and recreated UE."
+echo "Resumed $IMSI; UE regains connectivity on its own (see wait-for-attach.sh next)."

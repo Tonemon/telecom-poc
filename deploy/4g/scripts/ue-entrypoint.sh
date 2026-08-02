@@ -15,16 +15,15 @@
 # route for its assigned /24), so ordinary (non interface-bound) traffic has
 # no way to reach the tunnel at all without this loop maintaining one.
 #
-# Note: srsue also never arms a retry timer for several attach-reject causes
-# (notably #8, "EPS services and non-EPS services not allowed" -- what an
-# auto-reattach gets while still suspended; see parse_attach_reject's "TODO:
-# handle other relevant reject causes" in nas.cc), so a UE rejected in that
-# state stays dark until something recreates it. That's not fixable from
-# here: srsRAN's ZMQ RF driver only reconnects if the eNB (and, in multi-UE
-# mode, the broker) restart together with the UE, which a UE-only script has
-# no reach to do. Left as documented, existing behavior (see
-# assert-live-detach.sh's force-recreate fallback) rather than worked around
-# here.
+# The loop re-asserts the route every second unconditionally (rather than
+# only reacting to an observed no-IP -> has-IP edge) because `ip route
+# replace`/`ip route del ... || true` are idempotent and cheap, and an
+# edge-triggered version can miss a transition -- confirmed live: after the
+# nas.cc T3402 patch, a suspend/resume cycle can complete a full detach +
+# automatic reattach (new tun_srsue address) without this container ever
+# restarting, and an edge-triggered check running at 1s granularity missed
+# that the address had changed, leaving the route stale even though the
+# tunnel itself was working fine.
 #
 # Usage: ue-entrypoint.sh <ue.conf>
 set -eu
@@ -38,18 +37,11 @@ iptables -A OUTPUT -o eth0 -j DROP
 srsue "$@" &
 SRSUE_PID=$!
 
-has_route=0
 while kill -0 "$SRSUE_PID" 2>/dev/null; do
   if ip -4 addr show "$TUN_DEV" 2>/dev/null | grep -q "inet "; then
-    if [ "$has_route" -eq 0 ]; then
-      ip route replace default dev "$TUN_DEV"
-      has_route=1
-    fi
+    ip route replace default dev "$TUN_DEV"
   else
-    if [ "$has_route" -eq 1 ]; then
-      ip route del default dev "$TUN_DEV" 2>/dev/null || true
-      has_route=0
-    fi
+    ip route del default dev "$TUN_DEV" 2>/dev/null || true
   fi
   sleep 1
 done

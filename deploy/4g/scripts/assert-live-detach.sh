@@ -54,10 +54,10 @@ fi
 echo "PASS: plain ping (no -I) also fails while suspended (no eth0 fallback)."
 
 tctl resume "$IMSI" --reason CLEARED --note "live-detach test"
-echo "Resumed $IMSI; confirming the UE has working connectivity again (it reattaches on its own per REATTACH_REQUIRED)..."
+echo "Resumed $IMSI; confirming the UE regains connectivity on its own..."
 
 reattached=false
-for i in $(seq 1 30); do
+for i in $(seq 1 40); do
   if has_ip && $COMPOSE exec -T ue ping -I tun_srsue -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
     reattached=true
     break
@@ -66,19 +66,7 @@ for i in $(seq 1 30); do
 done
 
 if [ "$reattached" = false ]; then
-  echo "WARN: UE did not auto-reattach within 30s; forcing recreate as fallback (this masks whether UE-initiated reattach still works — investigate if this becomes frequent)" >&2
-  $COMPOSE up -d --force-recreate enb ue >/dev/null 2>&1
-  for i in $(seq 1 30); do
-    if has_ip && $COMPOSE exec -T ue ping -I tun_srsue -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-      reattached=true
-      break
-    fi
-    sleep 1
-  done
-fi
-
-if [ "$reattached" = false ]; then
-  echo "FAIL: UE did not reattach after resume, even after force-recreate" >&2
+  echo "FAIL: UE did not reattach after resume within 40s" >&2
   exit 1
 fi
 echo "PASS: UE reattached after resume."
