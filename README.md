@@ -35,7 +35,8 @@ Parts (deep dives):
 - [`docs/parts/2-multi-ue-broker.md`](docs/parts/2-multi-ue-broker.md) - multi-UE / multi-cell (ZMQ broker)
 
 Scenarios (runnable walkthroughs):
-- [`docs/scenarios/suspend-resume.md`](docs/scenarios/suspend-resume.md) - provision, suspend, and resume a subscriber
+- [`docs/scenarios/1-suspend-resume-subscriber.md`](docs/scenarios/1-suspend-resume-subscriber.md) - provision, suspend, and resume a subscriber
+- [`docs/scenarios/2-change-subscriber-plan.md`](docs/scenarios/2-change-subscriber-plan.md) - change a subscriber's plan while attached (signaled live, enforced on next attach)
 
 ## Layout
 
