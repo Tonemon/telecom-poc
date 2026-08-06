@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/telecom-poc/provisioner/internal/api"
+	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/store"
 )
 
@@ -27,6 +28,7 @@ func main() {
 	uri := env("PROVISIONER_MONGODB_URI", "mongodb://172.22.0.2/open5gs")
 	addr := env("PROVISIONER_LISTEN_ADDR", ":8080")
 	actor := env("PROVISIONER_ACTOR", "operator")
+	mmeURL := env("PROVISIONER_MME_METRICS_URL", "http://172.22.0.5:9090")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -42,7 +44,8 @@ func main() {
 		}
 		return b
 	}
-	srv := api.NewServer(st, token, actor, keygen)
-	log.Printf("provisioner listening on %s (mongo %s)", addr, uri)
+	mme := network.NewMMEClient(mmeURL)
+	srv := api.NewServer(st, token, actor, keygen, mme)
+	log.Printf("provisioner listening on %s (mongo %s, mme %s)", addr, uri, mmeURL)
 	log.Fatal(http.ListenAndServe(addr, srv.Handler()))
 }
