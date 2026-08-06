@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/telecom-poc/provisioner/internal/api"
+	"github.com/telecom-poc/provisioner/internal/metrics"
 	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/store"
 )
@@ -45,7 +46,30 @@ func main() {
 		return b
 	}
 	mme := network.NewMMEClient(mmeURL)
-	srv := api.NewServer(st, token, actor, keygen, mme)
+	m := metrics.New()
+	srv := api.NewServerWithMetrics(st, token, actor, keygen, mme, m)
+
+	// Subscriber counts are state, not events, so they are sampled rather than
+	// incremented on the request path — that way they stay correct even when the
+	// DB is changed by something other than this process.
+	go func() {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			recs, err := st.List(ctx)
+			cancel()
+			if err == nil {
+				suspended := 0
+				for _, r := range recs {
+					if r.Barred {
+						suspended++
+					}
+				}
+				m.SetSubscribers(len(recs), suspended)
+			}
+			time.Sleep(15 * time.Second)
+		}
+	}()
+
 	log.Printf("provisioner listening on %s (mongo %s, mme %s)", addr, uri, mmeURL)
 	log.Fatal(http.ListenAndServe(addr, srv.Handler()))
 }

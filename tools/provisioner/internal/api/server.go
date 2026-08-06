@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/telecom-poc/provisioner/internal/metrics"
 	"github.com/telecom-poc/provisioner/internal/milenage"
 	"github.com/telecom-poc/provisioner/internal/network"
 	"github.com/telecom-poc/provisioner/internal/profile"
@@ -25,20 +26,29 @@ const (
 )
 
 type Server struct {
-	st     store.Store
-	token  string
-	actor  string
-	keygen func() []byte
-	mme    *network.MMEClient
+	st      store.Store
+	token   string
+	actor   string
+	keygen  func() []byte
+	mme     *network.MMEClient
+	metrics *metrics.Metrics
 }
 
+// NewServer builds a Server with its own fresh metrics registry.
 func NewServer(st store.Store, token, actor string, keygen func() []byte, mme *network.MMEClient) *Server {
-	return &Server{st: st, token: token, actor: actor, keygen: keygen, mme: mme}
+	return NewServerWithMetrics(st, token, actor, keygen, mme, metrics.New())
+}
+
+// NewServerWithMetrics lets the caller supply the registry, which main() does so
+// it can also publish counts sampled outside the request path.
+func NewServerWithMetrics(st store.Store, token, actor string, keygen func() []byte, mme *network.MMEClient, m *metrics.Metrics) *Server {
+	return &Server{st: st, token: token, actor: actor, keygen: keygen, mme: mme, metrics: m}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	mux.Handle("GET /metrics", s.metrics.Handler())
 	mux.HandleFunc("POST /subscribers/issue", s.auth(s.handleIssue))
 	mux.HandleFunc("POST /subscribers", s.auth(s.handleAdd))
 	mux.HandleFunc("GET /subscribers", s.auth(s.handleList))
@@ -53,14 +63,30 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// statusRecorder remembers the status code so it can be used as a metric label;
+// http.ResponseWriter offers no way to read back what was written.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		defer func() { s.metrics.ObserveRequest(r.Pattern, rec.status, time.Since(start)) }()
+
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if got == "" || got != s.token {
-			writeErr(w, http.StatusUnauthorized, "invalid or missing API token")
+			writeErr(rec, http.StatusUnauthorized, "invalid or missing API token")
 			return
 		}
-		next(w, r)
+		next(rec, r)
 	}
 }
 
@@ -80,6 +106,10 @@ func (s *Server) audit(r *http.Request, imsi string, action provisioning.Action,
 	_ = s.st.AppendAudit(r.Context(), provisioning.AuditRecord{
 		IMSI: imsi, Action: string(action), Reason: reason, Note: note, Actor: s.actor, At: time.Now().UTC(),
 	})
+	// One instrumentation point for every mutating operation: this helper is on
+	// the success path of all of them, and already carries the action and the
+	// validated reason code.
+	s.metrics.RecordOperation(string(action), reason)
 }
 
 func (s *Server) nextIMSI(r *http.Request) (string, error) {
