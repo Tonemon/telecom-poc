@@ -2,6 +2,7 @@ COMPOSE_4G := docker compose -f deploy/4g/docker-compose.yml
 COMPOSE_MULTI := docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml
 # Everything except the radio (enb) and the device (ue): the EPC core + provisioner.
 CORE_4G := mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
+OBS_NETWORK := telecom-poc-obs
 
 .PHONY: help
 help:
@@ -11,6 +12,13 @@ help:
 .PHONY: submodules
 submodules: ## Initialise and update git submodules
 	git submodule update --init --recursive
+
+# The observability network is shared by every generation and by the monitoring
+# stack, so no single compose file may own it. Created here, idempotently, and
+# depended on by every target that starts containers which join it.
+.PHONY: obs-network
+obs-network:
+	@docker network inspect $(OBS_NETWORK) >/dev/null 2>&1 || docker network create $(OBS_NETWORK)
 
 # =====================================================================================
 # DEPLOY — one shot
@@ -25,7 +33,7 @@ submodules: ## Initialise and update git submodules
 	done
 
 .PHONY: 4g-multi
-4g-multi: ## One-shot MULTI (no ping): 2 cells + 3 UEs through the ZMQ broker
+4g-multi: obs-network ## One-shot MULTI (no ping): 2 cells + 3 UEs through the ZMQ broker
 	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
 	$(COMPOSE_MULTI) build broker-a
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
@@ -39,7 +47,7 @@ submodules: ## Initialise and update git submodules
 	@echo "Up. UEs attach in a few seconds — check with: make status-4g"
 
 .PHONY: 4g-single
-4g-single: ## One-shot SINGLE: 1 eNB + 1 UE + 1 subscriber, attach + ping (the pre-multi behaviour)
+4g-single: obs-network ## One-shot SINGLE: 1 eNB + 1 UE + 1 subscriber, attach + ping (the pre-multi behaviour)
 	@echo "==> [1/3] Building & starting the single-cell stack (core + enb + ue)..."
 	$(COMPOSE_4G) up -d --build
 	@echo "==> [2/3] Provisioning subscriber 999700000000001 (matches ue.conf)..."
@@ -61,7 +69,7 @@ submodules: ## Initialise and update git submodules
 # =====================================================================================
 
 .PHONY: 4g-infra
-4g-infra: ## Bring up the operator network (EPC core + both eNBs) only — no subscribers, no UEs
+4g-infra: obs-network ## Bring up the operator network (EPC core + both eNBs) only — no subscribers, no UEs
 	@echo "==> [1/3] Building the broker image + EPC core + provisioner (no radio yet):"
 	@echo "          $(CORE_4G)"
 	$(COMPOSE_MULTI) build broker-a
@@ -153,7 +161,7 @@ test-provisioner-lifecycle: ## Prove suspend/resume and set-plan behave like a r
 # =====================================================================================
 
 .PHONY: up-4g
-up-4g: ## Build and start the single-cell 4G stack
+up-4g: obs-network ## Build and start the single-cell 4G stack
 	$(COMPOSE_4G) up -d --build
 
 .PHONY: status-4g
@@ -183,7 +191,7 @@ telcoctl: ## Build the telcoctl host binary to ./bin/telcoctl
 	@echo "built ./bin/telcoctl"
 
 .PHONY: capture-4g
-capture-4g: ## Start the single-cell stack WITH packet capture (pcaps -> deploy/4g/pcap/)
+capture-4g: obs-network ## Start the single-cell stack WITH packet capture (pcaps -> deploy/4g/pcap/)
 	$(COMPOSE_4G) --profile capture up -d --build
 	./deploy/4g/scripts/add-subscriber.sh
 	./deploy/4g/scripts/wait-for-attach.sh

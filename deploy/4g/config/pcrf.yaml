@@ -6,3 +6,7 @@ global:
     ue: 1024
 pcrf:
   freeDiameter: /usr/local/etc/freeDiameter/pcrf.conf
+  metrics:
+    server:
+      - address: 0.0.0.0
+        port: 9090

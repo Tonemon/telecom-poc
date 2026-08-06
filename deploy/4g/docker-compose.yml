@@ -7,6 +7,9 @@ networks:
       config:
         - subnet: 172.22.0.0/24
           gateway: 172.22.0.1
+  obs:
+    external: true
+    name: telecom-poc-obs
 
 services:
   mongo:
@@ -57,6 +60,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.30
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "provisioner"
+      telecom-poc.metrics_port: "8080"
     depends_on:
       mongo: { condition: service_healthy }
       mongo-init: { condition: service_completed_successfully }
@@ -95,6 +104,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.8
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "hss"
+      telecom-poc.metrics_port: "9090"
     depends_on:
       mongo: { condition: service_healthy }
       mongo-init: { condition: service_completed_successfully }
@@ -109,6 +124,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.9
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "pcrf"
+      telecom-poc.metrics_port: "9090"
     depends_on:
       mongo: { condition: service_healthy }
 
@@ -146,6 +167,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.7
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "upf"
+      telecom-poc.metrics_port: "9090"
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun"]
     sysctls:
@@ -161,6 +188,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.4
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "smf"
+      telecom-poc.metrics_port: "9090"
     depends_on: [scp, upf, pcrf]
 
   mme:
@@ -173,6 +206,12 @@ services:
     networks:
       epc:
         ipv4_address: 172.22.0.5
+      obs: {}
+    labels:
+      telecom-poc.metrics: "true"
+      telecom-poc.generation: "4g"
+      telecom-poc.nf: "mme"
+      telecom-poc.metrics_port: "9090"
     depends_on: [hss, sgwc, smf]
 
   enb:
