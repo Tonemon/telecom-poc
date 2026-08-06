@@ -140,11 +140,11 @@ obs-network:
 # =====================================================================================
 
 .PHONY: test-4g-multi
-test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eNB
+test-4g-multi: obs-network ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eNB
 	./deploy/4g/scripts/test-multi.sh
 
 .PHONY: test-provisioner-lifecycle
-test-provisioner-lifecycle: ## Prove suspend/resume and set-plan behave like a real telco: live detach, blocked reattach, signaled-not-enforced plan change
+test-provisioner-lifecycle: obs-network ## Prove suspend/resume and set-plan behave like a real telco: live detach, blocked reattach, signaled-not-enforced plan change
 	$(COMPOSE_4G) up -d --build
 	./deploy/4g/scripts/provision.sh
 	./deploy/4g/scripts/wait-for-attach.sh
