@@ -1,5 +1,6 @@
 COMPOSE_4G := docker compose -f deploy/4g/docker-compose.yml
 COMPOSE_MULTI := docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml
+COMPOSE_MON := docker compose -f deploy/monitoring/docker-compose.yml
 # Everything except the radio (enb) and the device (ue): the EPC core + provisioner.
 CORE_4G := mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 OBS_NETWORK := telecom-poc-obs
@@ -203,3 +204,20 @@ capture-stop-4g: ## Stop capture sidecars and list resulting pcap files
 	$(COMPOSE_4G) --profile capture stop pcap-mme pcap-smf pcap-sgwu pcap-upf
 	$(COMPOSE_4G) stop enb ue
 	@ls -lh deploy/4g/pcap/*.pcap 2>/dev/null || echo "no pcaps found"
+
+# =====================================================================================
+# OBSERVABILITY — Prometheus + Grafana. Generation-agnostic: works with 4G up,
+# 5G up, both, or neither. A generation that is not running shows no data.
+# =====================================================================================
+.PHONY: monitor
+monitor: obs-network ## Start Prometheus + Grafana (independent of which stacks are running)
+	$(COMPOSE_MON) up -d
+	@echo "Grafana: http://127.0.0.1:3000  (admin/admin)"
+
+.PHONY: monitor-down
+monitor-down: ## Stop Prometheus + Grafana, KEEPING recorded history
+	$(COMPOSE_MON) down
+
+.PHONY: monitor-reset
+monitor-reset: ## Stop Prometheus + Grafana and DELETE all recorded history
+	$(COMPOSE_MON) down -v

@@ -1,0 +1,45 @@
+# Standalone and generation-agnostic. This file references no other stack, and
+# no stack references it — the external obs network is the only contract, which
+# is what lets 4G, 5G, both or neither be running when this comes up.
+networks:
+  obs:
+    external: true
+    name: telecom-poc-obs
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    volumes:
+      - "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      # Read-only: Prometheus discovers containers but must never control them.
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "prom-data:/prometheus"
+    networks: [obs]
+    user: root   # required to read the docker socket
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - "./grafana/provisioning:/etc/grafana/provisioning:ro"
+      - "./grafana/dashboards:/var/lib/grafana/dashboards:ro"
+      - "grafana-data:/var/lib/grafana"
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [obs]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+volumes:
+  prom-data:
+  grafana-data:

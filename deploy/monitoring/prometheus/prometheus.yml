@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # One job for the whole lab. Targets are discovered, not listed, so a
+  # generation that is not running produces no targets at all rather than a
+  # stream of failed scrapes — and adding 5G later needs no change here.
+  - job_name: telecom-poc
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+    relabel_configs:
+      # Opt in explicitly; everything else on the host is ignored.
+      - source_labels: [__meta_docker_container_label_telecom_poc_metrics]
+        regex: "true"
+        action: keep
+      # Docker SD emits one target per container-network pair. Keep only the
+      # observability network so each container yields exactly one target.
+      - source_labels: [__meta_docker_network_name]
+        regex: telecom-poc-obs
+        action: keep
+      # Address is the container's obs-network IP plus its declared port; the
+      # NFs serve on 9090 and the provisioner on 8080.
+      - source_labels: [__meta_docker_network_ip, __meta_docker_container_label_telecom_poc_metrics_port]
+        separator: ":"
+        target_label: __address__
+      # generation is load-bearing, not decoration: Open5GS uses SMF and UPF in
+      # BOTH 4G and 5G, so with both stacks up the metric names collide and only
+      # this label separates them.
+      - source_labels: [__meta_docker_container_label_telecom_poc_generation]
+        target_label: generation
+      - source_labels: [__meta_docker_container_label_telecom_poc_nf]
+        target_label: nf
+      - source_labels: [__meta_docker_container_label_telecom_poc_nf]
+        target_label: job
+      - source_labels: [__meta_docker_container_name]
+        regex: "/(.*)"
+        target_label: container
