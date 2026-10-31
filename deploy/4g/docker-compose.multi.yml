@@ -3,10 +3,17 @@
 # A cell = one eNB + one GNU Radio broker + its UEs. Brokers must start LAST and be
 # restarted whenever the RAN restarts. The base `enb`/`ue` services are simply not started
 # under this topology. See docs/superpowers/specs/2026-07-31-multi-ue-broker-design.md.
+
+# Same image and build as the base file's srsRAN services (anchors don't cross files).
+x-srsran-build: &srsran-build
+  context: ../..
+  dockerfile: deploy/images/srsran.Dockerfile
+
 services:
   # ---- Cell A: enb-a + broker-a + ue1, ue2 --------------------------------
   enb-a:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     command: ["srsenb", "/conf/enb.conf"]
     volumes:
       - "./config/multi/enb-a.conf:/conf/enb.conf:ro"
@@ -36,6 +43,7 @@ services:
 
   ue1:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     hostname: iphone-6
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
@@ -51,6 +59,7 @@ services:
 
   ue2:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     hostname: pixel-8
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
@@ -67,6 +76,7 @@ services:
   # ---- Cell B: enb-b + broker-b + ue3 -------------------------------------
   enb-b:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     command: ["srsenb", "/conf/enb.conf"]
     volumes:
       - "./config/multi/enb-b.conf:/conf/enb.conf:ro"
@@ -96,6 +106,7 @@ services:
 
   ue3:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     hostname: samsung-4
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:

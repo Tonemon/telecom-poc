@@ -1,5 +1,15 @@
 name: telecom-poc-4g
 
+# Neither image is published to a registry: they are compiled from the vendor/
+# submodules. Every service using them needs `build:`, otherwise a host without
+# the image tries to pull it from Docker Hub and fails.
+x-open5gs-build: &open5gs-build
+  context: ../..
+  dockerfile: deploy/images/open5gs.Dockerfile
+x-srsran-build: &srsran-build
+  context: ../..
+  dockerfile: deploy/images/srsran.Dockerfile
+
 networks:
   epc:
     driver: bridge
@@ -68,6 +78,7 @@ services:
 
   nrf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     command: ["open5gs-nrfd", "-c", "/conf/nrf.yaml"]
     volumes:
       - "./config/nrf.yaml:/conf/nrf.yaml:ro"
@@ -77,6 +88,7 @@ services:
 
   scp:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     command: ["open5gs-scpd", "-c", "/conf/scp.yaml"]
     volumes:
       - "./config/scp.yaml:/conf/scp.yaml:ro"
@@ -87,6 +99,7 @@ services:
 
   hss:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/hss.conf", "172.22.0.8", "172.22.0.5", "--"]
     command: ["open5gs-hssd", "-c", "/conf/hss.yaml"]
     volumes:
@@ -101,6 +114,7 @@ services:
 
   pcrf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/pcrf.conf", "172.22.0.9", "172.22.0.4", "--"]
     command: ["open5gs-pcrfd", "-c", "/conf/pcrf.yaml"]
     volumes:
@@ -114,6 +128,7 @@ services:
 
   sgwc:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     command: ["open5gs-sgwcd", "-c", "/conf/sgwc.yaml"]
     volumes:
       - "./config/sgwc.yaml:/conf/sgwc.yaml:ro"
@@ -123,6 +138,7 @@ services:
 
   sgwu:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     command: ["open5gs-sgwud", "-c", "/conf/sgwu.yaml"]
     volumes:
       - "./config/sgwu.yaml:/conf/sgwu.yaml:ro"
@@ -132,6 +148,7 @@ services:
 
   upf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     command:
       - /bin/sh
       - -c
@@ -153,6 +170,7 @@ services:
 
   smf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/smf.conf", "172.22.0.4", "172.22.0.9", "--"]
     command: ["open5gs-smfd", "-c", "/conf/smf.yaml"]
     volumes:
@@ -165,6 +183,7 @@ services:
 
   mme:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     entrypoint: ["/scripts/diameter-entrypoint.sh", "/usr/local/etc/freeDiameter/mme.conf", "172.22.0.5", "172.22.0.8", "--"]
     command: ["open5gs-mmed", "-c", "/conf/mme.yaml"]
     volumes:
@@ -177,6 +196,7 @@ services:
 
   enb:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     command: ["srsenb", "/conf/enb.conf"]
     volumes:
       - "./config/enb.conf:/conf/enb.conf:ro"
@@ -191,6 +211,7 @@ services:
 
   ue:
     image: telecom-poc/srsran:local
+    build: *srsran-build
     hostname: iphone-6
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
@@ -209,6 +230,7 @@ services:
   # sees exactly that NF's traffic. Output lands in deploy/4g/pcap/ for Wireshark.
   pcap-mme:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     profiles: ["capture"]
     network_mode: "service:mme"
     cap_add: [NET_RAW, NET_ADMIN]
@@ -218,6 +240,7 @@ services:
 
   pcap-smf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     profiles: ["capture"]
     network_mode: "service:smf"
     cap_add: [NET_RAW, NET_ADMIN]
@@ -227,6 +250,7 @@ services:
 
   pcap-sgwu:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     profiles: ["capture"]
     network_mode: "service:sgwu"
     cap_add: [NET_RAW, NET_ADMIN]
@@ -236,6 +260,7 @@ services:
 
   pcap-upf:
     image: telecom-poc/open5gs:local
+    build: *open5gs-build
     profiles: ["capture"]
     network_mode: "service:upf"
     cap_add: [NET_RAW, NET_ADMIN]
