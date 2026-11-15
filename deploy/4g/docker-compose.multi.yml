@@ -4,6 +4,12 @@
 # Radio flowgraph that weights every UE<->cell link with a gain (config/multi/air.json).
 # The air must start LAST and be restarted whenever any eNB or UE restarts (all radio
 # endpoints run in one lockstep). The base `enb`/`ue` services are not started here.
+#
+# FFT cache: srsRAN benchmarks every FFT size when it starts (FFTW_MEASURE) and keeps the result
+# in $HOME/.srsran_fftwisdom, written on a clean exit. A fresh container has none, so each eNB/UE
+# spent ~3 min benchmarking on every start. Each one gets HOME=/fftw on its own host folder under
+# deploy/4g/.fftw/ (git-ignored, survives `down -v`): the first boot on a host is slow, later
+# boots take seconds. Delete the folder to re-benchmark (e.g. after moving to another CPU).
 
 # Same image and build as the base file's srsRAN services (anchors don't cross files).
 x-srsran-build: &srsran-build
@@ -15,9 +21,11 @@ services:
   enb-a:
     image: telecom-poc/srsran:local
     build: *srsran-build
+    environment: { HOME: /fftw }  # FFT benchmark cache, see top of file
     command: ["srsenb", "/conf/enb.conf"]
     volumes:
       - "./config/multi/enb-a.conf:/conf/enb.conf:ro"
+      - "./.fftw/enb-a:/fftw"
       - "./config/multi/rr-a.conf:/conf/rr.conf:ro"
       - "./config/sib.conf:/conf/sib.conf:ro"
       - "./config/rb.conf:/conf/rb.conf:ro"
@@ -30,10 +38,12 @@ services:
   ue1:
     image: telecom-poc/srsran:local
     build: *srsran-build
+    environment: { HOME: /fftw }  # FFT benchmark cache, see top of file
     hostname: iphone-6
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue1.conf:/conf/ue.conf:ro"
+      - "./.fftw/ue1:/fftw"
       - "./scripts/ue-entrypoint.sh:/scripts/ue-entrypoint.sh:ro"
       - "./pcap:/pcap"
     networks:
@@ -46,10 +56,12 @@ services:
   ue2:
     image: telecom-poc/srsran:local
     build: *srsran-build
+    environment: { HOME: /fftw }  # FFT benchmark cache, see top of file
     hostname: pixel-8
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue2.conf:/conf/ue.conf:ro"
+      - "./.fftw/ue2:/fftw"
       - "./scripts/ue-entrypoint.sh:/scripts/ue-entrypoint.sh:ro"
       - "./pcap:/pcap"
     networks:
@@ -63,9 +75,11 @@ services:
   enb-b:
     image: telecom-poc/srsran:local
     build: *srsran-build
+    environment: { HOME: /fftw }  # FFT benchmark cache, see top of file
     command: ["srsenb", "/conf/enb.conf"]
     volumes:
       - "./config/multi/enb-b.conf:/conf/enb.conf:ro"
+      - "./.fftw/enb-b:/fftw"
       - "./config/multi/rr-b.conf:/conf/rr.conf:ro"
       - "./config/sib.conf:/conf/sib.conf:ro"
       - "./config/rb.conf:/conf/rb.conf:ro"
@@ -78,10 +92,12 @@ services:
   ue3:
     image: telecom-poc/srsran:local
     build: *srsran-build
+    environment: { HOME: /fftw }  # FFT benchmark cache, see top of file
     hostname: samsung-4
     command: ["/scripts/ue-entrypoint.sh", "/conf/ue.conf"]
     volumes:
       - "./config/multi/ue3.conf:/conf/ue.conf:ro"
+      - "./.fftw/ue3:/fftw"
       - "./scripts/ue-entrypoint.sh:/scripts/ue-entrypoint.sh:ro"
       - "./pcap:/pcap"
     networks:

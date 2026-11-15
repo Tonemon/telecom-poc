@@ -37,6 +37,11 @@ iptables -A OUTPUT -o eth0 -j DROP
 srsue "$@" &
 SRSUE_PID=$!
 
+# This script is PID 1, so `docker stop` signals it, not srsue. Pass the signal on, so srsue
+# shuts down cleanly (detach, and saving its FFT benchmark cache, see docker-compose.multi.yml)
+# instead of being killed when the stop timeout runs out.
+trap 'kill -INT "$SRSUE_PID" 2>/dev/null || true' TERM INT
+
 while kill -0 "$SRSUE_PID" 2>/dev/null; do
   if ip -4 addr show "$TUN_DEV" 2>/dev/null | grep -q "inet "; then
     ip route replace default dev "$TUN_DEV"
