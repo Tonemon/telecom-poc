@@ -5,6 +5,9 @@ import urllib.error
 import urllib.request
 
 from api import make_server
+from control import Controller
+from test_world import config
+from world import World
 
 TOKEN = "test-token"
 
@@ -88,6 +91,77 @@ class ApiTest(unittest.TestCase):
 
     def test_unknown_route_404(self):
         self.assertEqual(self.request("GET", "/nope")[0], 404)
+
+
+class WorldApiTest(ApiTest):
+    """The mobility routes, against a real World behind a Controller."""
+
+    def setUp(self):
+        self.calls = []
+        self.ctl = Controller(World(config()), lambda ue, cell, g: self.calls.append((ue, cell, g)),
+                              log=lambda *_: None)
+        self.server = make_server(0, TOKEN, self.ctl, self.ctl.override_gain)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def ue(self, ue_id):
+        return next(u for u in self.request("GET", "/world")[1]["ues"] if u["id"] == ue_id)
+
+    def test_put_gains_calls_set_gain(self):
+        status, _ = self.request("PUT", "/ues/ue2/gains", {"A": 0.1, "B": 1.0})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.ue("ue2")["gains"], {"A": 0.1, "B": 1.0})
+
+    def test_travel_202(self):
+        status, body = self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": 100})
+        self.assertEqual(status, 202)
+        self.assertEqual(body["id"], "ue2")
+        self.assertEqual(body["travel"]["x"], 8.0)
+        self.assertEqual(self.ue("ue2")["travel"]["speed_kmh"], 100.0)
+
+    def test_travel_bad_speed_400(self):
+        for speed in (0, -10, "fast", None, True):
+            status, body = self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": speed})
+            self.assertEqual(status, 400, speed)
+            self.assertIn("error", body)
+        self.assertIsNone(self.ue("ue2")["travel"])
+
+    def test_travel_missing_field_400(self):
+        self.assertEqual(self.request("POST", "/ues/ue2/travel", {"x": 8, "speed_kmh": 10})[0], 400)
+
+    def test_travel_to_current_position_400(self):
+        status, body = self.request("POST", "/ues/ue2/travel", {"x": 2, "y": 0, "speed_kmh": 10})
+        self.assertEqual(status, 400)
+        self.assertIn("already", body["error"])
+
+    def test_travel_unknown_ue_404(self):
+        self.assertEqual(self.request("POST", "/ues/ue9/travel", {"x": 8, "y": 0, "speed_kmh": 10})[0], 404)
+
+    def test_position_updates_snapshot(self):
+        status, body = self.request("PUT", "/ues/ue3/position", {"x": 30, "y": 5})
+        self.assertEqual(status, 200)
+        ue = self.ue("ue3")
+        self.assertEqual((ue["x"], ue["y"]), (30.0, 5.0))
+        self.assertEqual(ue["gains"], {"A": 0.0, "B": 0.0})  # far from both cells
+
+    def test_shielded_toggle(self):
+        self.assertEqual(self.request("PUT", "/ues/ue1/shielded", {"shielded": True})[0], 200)
+        self.assertEqual(self.ue("ue1")["gains"], {"A": 0.0, "B": 0.0})
+        self.assertTrue(self.ue("ue1")["shielded"])
+        self.assertEqual(self.request("PUT", "/ues/ue1/shielded", {"shielded": False})[0], 200)
+        self.assertEqual(self.ue("ue1")["gains"]["A"], 1.0)
+
+    def test_shielded_must_be_bool_400(self):
+        for bad in ({"shielded": "yes"}, {"shielded": 1}, {}):
+            self.assertEqual(self.request("PUT", "/ues/ue1/shielded", bad)[0], 400, bad)
+
+    def test_world_returns_snapshot(self):
+        status, body = self.request("GET", "/world")
+        self.assertEqual(status, 200)
+        self.assertEqual([u["id"] for u in body["ues"]], ["ue1", "ue2", "ue3"])
+
+    def test_world_has_radio_clock(self):
+        self.assertIn("radio", self.request("GET", "/world")[1])
 
 
 if __name__ == "__main__":
