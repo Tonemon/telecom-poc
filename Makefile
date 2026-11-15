@@ -103,6 +103,11 @@ submodules: ## Initialise and update git submodules
 	done
 	@echo "All 3 devices attached and data plane verified."
 
+.PHONY: 4g-travel
+4g-travel: ## Move UEs around the cells: no options = help + who is where (UE= TO= SPEED= AT= SHIELD= WATCH=)
+	@python3 ./deploy/4g/scripts/travel.py UE="$(UE)" TO="$(TO)" AT="$(AT)" SPEED="$(SPEED)" \
+	  SHIELD="$(SHIELD)" WATCH="$(WATCH)"
+
 # =====================================================================================
 # TEARDOWN
 # =====================================================================================
