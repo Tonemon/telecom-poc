@@ -115,6 +115,10 @@ services:
     image: telecom-poc/broker:local
     volumes:
       - "./config/multi/air.json:/conf/air.json:ro"
+    environment:
+      AIR_TOKEN: "${AIR_TOKEN:-dev-air-token}"
+    ports:
+      - "127.0.0.1:8090:8090"  # control API (bearer token), host-local only
     networks:
       epc:
         ipv4_address: 172.22.0.41

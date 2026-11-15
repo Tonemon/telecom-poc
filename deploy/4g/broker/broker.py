@@ -7,8 +7,10 @@ or inserted, so stream position stays time. GNU Radio is imported lazily in main
 the pure modules stay testable without it.
 """
 import os
+import threading
 
 from air import load_config, plan_air, static_gains
+from api import make_server
 
 CONFIG = os.environ.get("AIR_CONFIG", "/conf/air.json")
 
@@ -20,6 +22,9 @@ class Air:
         cx = gr.sizeof_gr_complex
         plan = plan_air(cfg)
         gains = static_gains(cfg)
+        self.cfg = cfg
+        self.gains = dict(gains)  # current (ue, cell) -> gain, as set
+        self._lock = threading.Lock()
         self.tb = gr.top_block()
         self.gain_blocks = {}
 
@@ -56,8 +61,21 @@ class Air:
         key = (ue, cell)
         if key not in self.gain_blocks:
             raise KeyError(f"unknown link {ue} <-> {cell}")
-        self.gain_blocks[key].set_k(complex(value))
-        self.ul_gain_blocks[key].set_k(complex(value))
+        with self._lock:
+            self.gain_blocks[key].set_k(complex(value))
+            self.ul_gain_blocks[key].set_k(complex(value))
+            old, self.gains[key] = self.gains[key], float(value)
+        print(f"air: gain {ue}<->{cell} {old:g} -> {value:g}", flush=True)
+
+    def snapshot(self):
+        with self._lock:
+            gains = dict(self.gains)
+        return {
+            "cells": [{"id": c.id, "name": c.name, "x": c.x, "y": c.y} for c in self.cfg.cells],
+            "ues": [{"id": u.id, "x": u.x, "y": u.y,
+                     "gains": {c.id: gains[(u.id, c.id)] for c in self.cfg.cells}}
+                    for u in self.cfg.ues],
+        }
 
 
 def main():
@@ -66,6 +84,9 @@ def main():
     air = Air(cfg)
     links = ", ".join(f"{u}<->{c}={g:g}" for (u, c), g in sorted(static_gains(cfg).items()))
     print(f"air: {len(cfg.cells)} cells, {len(cfg.ues)} UEs; gains {links}", flush=True)
+    api = make_server(cfg.api_port, os.environ.get("AIR_TOKEN", "dev-air-token"), air, air.set_gain)
+    threading.Thread(target=api.serve_forever, daemon=True).start()
+    print(f"air: control API on port {cfg.api_port}", flush=True)
     air.tb.start()
     air.tb.wait()
 
