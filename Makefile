@@ -33,10 +33,10 @@ submodules: ## Initialise and update git submodules
 	./deploy/4g/scripts/provision-multi.sh
 	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
 	$(COMPOSE_MULTI) up -d enb-a enb-b ue1 ue2 ue3
-	@echo "==> [4/4] Starting the air (shared radio broker) LAST..."
-	sleep 5
+	@echo "==> [4/4] Waiting for every eNB/UE radio to be ready, then starting the air LAST..."
+	./deploy/4g/scripts/wait-radio-ready.sh enb-a enb-b ue1 ue2 ue3
 	$(COMPOSE_MULTI) up -d --no-deps air
-	@echo "Up. UEs attach in a few seconds — check with: make status-4g"
+	@echo "Up. UEs attach within about a minute — check with: make status-4g"
 
 .PHONY: 4g-single
 4g-single: ## One-shot SINGLE: 1 eNB + 1 UE + 1 subscriber, attach + ping (the pre-multi behaviour)
@@ -89,8 +89,8 @@ submodules: ## Initialise and update git submodules
 	@echo "    (needs infra up — 'make 4g-infra' — and sub 999700000000001 — 'make 4g-demo-subscribers')"
 	@echo "==> [1/3] Starting the device ue1 (camps on enb-a)..."
 	$(COMPOSE_MULTI) up -d ue1
-	@echo "==> [2/3] Starting the air (shared radio broker) LAST..."
-	sleep 3
+	@echo "==> [2/3] Waiting for the radios to be ready, then starting the air LAST..."
+	./deploy/4g/scripts/wait-radio-ready.sh enb-a enb-b ue1
 	$(COMPOSE_MULTI) up -d --no-deps air
 	./deploy/4g/scripts/wait-for-attach-svc.sh ue1
 	@echo "==> [3/3] Data-plane check: ping 8.8.8.8 from ue1 via tun_srsue..."
@@ -102,8 +102,8 @@ submodules: ## Initialise and update git submodules
 	@echo "    (needs infra up — 'make 4g-infra' — and subs — 'make 4g-demo-subscribers')"
 	@echo "==> [1/3] Starting UEs ue1, ue2, ue3..."
 	$(COMPOSE_MULTI) up -d ue1 ue2 ue3
-	@echo "==> [2/3] Starting the air (shared radio broker) LAST..."
-	sleep 5
+	@echo "==> [2/3] Waiting for every eNB/UE radio to be ready, then starting the air LAST..."
+	./deploy/4g/scripts/wait-radio-ready.sh enb-a enb-b ue1 ue2 ue3
 	$(COMPOSE_MULTI) up -d --no-deps air
 	@echo "==> [3/3] Waiting for all 3 devices to attach..."
 	@for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh $$u; done
