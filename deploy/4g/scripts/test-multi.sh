@@ -7,7 +7,7 @@ $C up -d --build mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 ./deploy/4g/scripts/provision-multi.sh
 $C up -d enb-a enb-b ue1 ue2 ue3
 sleep 5
-$C up -d --no-deps broker-a broker-b   # brokers start LAST
+$C up -d --no-deps air   # the shared air starts LAST
 
 for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh "$u"; done
 

@@ -1,8 +1,9 @@
 # Multi-UE / multi-cell overlay for the 4G stack. Layer on top of the base compose:
 #   docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.multi.yml ...
-# A cell = one eNB + one GNU Radio broker + its UEs. Brokers must start LAST and be
-# restarted whenever the RAN restarts. The base `enb`/`ue` services are simply not started
-# under this topology. See docs/superpowers/specs/2026-07-31-multi-ue-broker-design.md.
+# Two cells (enb-a, enb-b) and three UEs share one radio medium: the `air` service, a GNU
+# Radio flowgraph that weights every UE<->cell link with a gain (config/multi/air.json).
+# The air must start LAST and be restarted whenever any eNB or UE restarts (all radio
+# endpoints run in one lockstep). The base `enb`/`ue` services are not started here.
 
 # Same image and build as the base file's srsRAN services (anchors don't cross files).
 x-srsran-build: &srsran-build
@@ -10,7 +11,7 @@ x-srsran-build: &srsran-build
   dockerfile: deploy/images/srsran.Dockerfile
 
 services:
-  # ---- Cell A: enb-a + broker-a + ue1, ue2 --------------------------------
+  # ---- Cell A: enb-a (ue1 and ue2 start in its range) ---------------------
   enb-a:
     image: telecom-poc/srsran:local
     build: *srsran-build
@@ -25,21 +26,6 @@ services:
       epc:
         ipv4_address: 172.22.0.40
     depends_on: [mme]
-
-  broker-a:
-    build:
-      context: ../..
-      dockerfile: deploy/images/broker.Dockerfile
-    image: telecom-poc/broker:local
-    environment:
-      ENB_DL: "tcp://172.22.0.40:2000"
-      ENB_UL: "tcp://*:2100"
-      SRATE: "23040000"
-      UES: "2111,172.22.0.61:2001 2112,172.22.0.62:2001"
-    networks:
-      epc:
-        ipv4_address: 172.22.0.41
-    depends_on: [enb-a, ue1, ue2]
 
   ue1:
     image: telecom-poc/srsran:local
@@ -73,7 +59,7 @@ services:
     devices: ["/dev/net/tun"]
     depends_on: [enb-a]
 
-  # ---- Cell B: enb-b + broker-b + ue3 -------------------------------------
+  # ---- Cell B: enb-b (ue3 starts in its range) -----------------------------
   enb-b:
     image: telecom-poc/srsran:local
     build: *srsran-build
@@ -88,21 +74,6 @@ services:
       epc:
         ipv4_address: 172.22.0.50
     depends_on: [mme]
-
-  broker-b:
-    build:
-      context: ../..
-      dockerfile: deploy/images/broker.Dockerfile
-    image: telecom-poc/broker:local
-    environment:
-      ENB_DL: "tcp://172.22.0.50:2000"
-      ENB_UL: "tcp://*:2100"
-      SRATE: "23040000"
-      UES: "2111,172.22.0.63:2001"
-    networks:
-      epc:
-        ipv4_address: 172.22.0.51
-    depends_on: [enb-b, ue3]
 
   ue3:
     image: telecom-poc/srsran:local
@@ -119,3 +90,16 @@ services:
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun"]
     depends_on: [enb-b]
+
+  # ---- The air: one shared radio medium for both cells and all UEs ------------
+  air:
+    build:
+      context: ../..
+      dockerfile: deploy/images/broker.Dockerfile
+    image: telecom-poc/broker:local
+    volumes:
+      - "./config/multi/air.json:/conf/air.json:ro"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.41
+    depends_on: [enb-a, enb-b, ue1, ue2, ue3]

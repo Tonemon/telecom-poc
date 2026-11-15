@@ -25,17 +25,17 @@ submodules: ## Initialise and update git submodules
 	done
 
 .PHONY: 4g-multi
-4g-multi: ## One-shot MULTI (no ping): 2 cells + 3 UEs through the ZMQ broker
+4g-multi: ## One-shot MULTI (no ping): 2 cells + 3 UEs through the shared ZMQ air
 	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
-	$(COMPOSE_MULTI) build broker-a
+	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
 	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
 	./deploy/4g/scripts/provision-multi.sh
 	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
 	$(COMPOSE_MULTI) up -d enb-a enb-b ue1 ue2 ue3
-	@echo "==> [4/4] Starting brokers LAST (broker-a, broker-b)..."
+	@echo "==> [4/4] Starting the air (shared radio broker) LAST..."
 	sleep 5
-	$(COMPOSE_MULTI) up -d --no-deps broker-a broker-b
+	$(COMPOSE_MULTI) up -d --no-deps air
 	@echo "Up. UEs attach in a few seconds — check with: make status-4g"
 
 .PHONY: 4g-single
@@ -57,14 +57,14 @@ submodules: ## Initialise and update git submodules
 #   then EITHER:
 #   make 4g-device             # bring up ONE device (ue1) -> sub …001 -> enb-a
 #   OR:
-#   make 4g-demo-devices       # bring up all 3 devices (ue1, ue2, ue3) + brokers
+#   make 4g-demo-devices       # bring up all 3 devices (ue1, ue2, ue3) + the air
 # =====================================================================================
 
 .PHONY: 4g-infra
 4g-infra: ## Bring up the operator network (EPC core + both eNBs) only — no subscribers, no UEs
 	@echo "==> [1/3] Building the broker image + EPC core + provisioner (no radio yet):"
 	@echo "          $(CORE_4G)"
-	$(COMPOSE_MULTI) build broker-a
+	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
 	@echo "==> [2/3] Starting the eNodeBs (enb-a, enb-b) — they S1-Setup to the MME..."
 	$(COMPOSE_MULTI) up -d enb-a enb-b
@@ -89,22 +89,22 @@ submodules: ## Initialise and update git submodules
 	@echo "    (needs infra up — 'make 4g-infra' — and sub 999700000000001 — 'make 4g-demo-subscribers')"
 	@echo "==> [1/3] Starting the device ue1 (camps on enb-a)..."
 	$(COMPOSE_MULTI) up -d ue1
-	@echo "==> [2/3] Starting its cell broker (broker-a) LAST..."
+	@echo "==> [2/3] Starting the air (shared radio broker) LAST..."
 	sleep 3
-	$(COMPOSE_MULTI) up -d --no-deps broker-a
+	$(COMPOSE_MULTI) up -d --no-deps air
 	./deploy/4g/scripts/wait-for-attach-svc.sh ue1
 	@echo "==> [3/3] Data-plane check: ping 8.8.8.8 from ue1 via tun_srsue..."
 	$(COMPOSE_MULTI) exec -T ue1 ping -I tun_srsue -c 4 8.8.8.8
 	@echo "Device ue1 attached and data plane verified."
 
 .PHONY: 4g-demo-devices
-4g-demo-devices: ## Bring up all 3 devices (ue1, ue2, ue3) + brokers on a running infra, attach all
+4g-demo-devices: ## Bring up all 3 devices (ue1, ue2, ue3) + the air on a running infra, attach all
 	@echo "    (needs infra up — 'make 4g-infra' — and subs — 'make 4g-demo-subscribers')"
 	@echo "==> [1/3] Starting UEs ue1, ue2, ue3..."
 	$(COMPOSE_MULTI) up -d ue1 ue2 ue3
-	@echo "==> [2/3] Starting brokers (broker-a, broker-b) LAST..."
+	@echo "==> [2/3] Starting the air (shared radio broker) LAST..."
 	sleep 5
-	$(COMPOSE_MULTI) up -d --no-deps broker-a broker-b
+	$(COMPOSE_MULTI) up -d --no-deps air
 	@echo "==> [3/3] Waiting for all 3 devices to attach..."
 	@for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh $$u; done
 	@echo "All 3 devices attached."
@@ -114,7 +114,7 @@ submodules: ## Initialise and update git submodules
 # =====================================================================================
 
 .PHONY: 4g-auto-down
-4g-auto-down: ## Tear down the whole MULTI/staged stack + volumes (core + eNBs + UEs + brokers)
+4g-auto-down: ## Tear down the whole MULTI/staged stack + volumes (core + eNBs + UEs + air)
 	$(COMPOSE_MULTI) --profile "*" down -v --remove-orphans
 
 .PHONY: 4g-single-down
@@ -122,9 +122,9 @@ submodules: ## Initialise and update git submodules
 	$(COMPOSE_4G) --profile "*" down -v --remove-orphans
 
 .PHONY: 4g-device-down
-4g-device-down: ## Stop and remove ONLY device ue1 + broker-a; leave the infra + subscribers up
-	@echo "==> Stopping and removing device ue1 + broker-a. Infra (core + eNBs) stays up."
-	$(COMPOSE_MULTI) rm -sf ue1 broker-a
+4g-device-down: ## Stop and remove ONLY device ue1 + the air; leave the infra + subscribers up
+	@echo "==> Stopping and removing device ue1 + the air. Infra (core + eNBs) stays up."
+	$(COMPOSE_MULTI) rm -sf ue1 air
 	@echo "Device ue1 removed. Bring it back with 'make 4g-device'."
 
 # =====================================================================================
