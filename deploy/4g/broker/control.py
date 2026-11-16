@@ -42,6 +42,21 @@ class Controller:
         self._log(f"air: {ue} {'shielded (no radio)' if shielded else 'unshielded'}")
         self._moved(ue)
 
+    def stop(self, ue):
+        self.world.stop(ue)
+        self._log(f"air: {ue} stopped")
+        self._moved(ue)
+
+    def place_cell(self, cell_id, x, y):
+        self.world.place_cell(cell_id, x, y)
+        self._log(f"air: cell {cell_id} moved to ({x:g}, {y:g})")
+        with self._lock:
+            self._overrides.clear()  # any UE's gain to this cell may have changed
+            self._push()
+
+    def dry_run_cell(self, cell_id, x, y):
+        return self.world.dry_run_cell(cell_id, x, y)
+
     def override_gain(self, ue, cell, value):
         with self._lock:
             if (ue, cell) not in self._applied:

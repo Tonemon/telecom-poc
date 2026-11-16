@@ -64,6 +64,32 @@ class ControllerTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.c.override_gain("ue1", "Z", 1.0)
 
+    def test_place_cell_pushes_changed_gains_only(self):
+        self.applied.clear()
+        self.c.place_cell("B", 12, 0)  # ue3 now 3 km away; ue1/ue2 stay out of range
+        self.assertTrue(self.applied)
+        self.assertEqual({cell for _, cell, _ in self.applied}, {"B"})
+        self.assertEqual({ue for ue, _, _ in self.applied}, {"ue3"})
+
+    def test_place_cell_clears_overrides(self):
+        self.c.override_gain("ue3", "B", 0.5)
+        self.c.place_cell("B", 9, 0)
+        self.assertEqual(self.gains_of("ue3")["B"], 1.0)  # world value, override gone
+
+    def test_dry_run_changes_nothing(self):
+        self.applied.clear()
+        res = self.c.dry_run_cell("B", 30, 0)
+        self.assertEqual(self.applied, [])
+        self.assertEqual({r["id"]: r["effect"] for r in res}["ue3"], "loses")
+
+    def test_stop_pushes_nothing_when_position_unchanged(self):
+        self.c.travel("ue2", 8, 0, 1000)
+        self.c.tick(3.6, 36)
+        self.applied.clear()
+        self.c.stop("ue2")
+        self.assertEqual(self.applied, [])
+        self.assertIsNone(next(u for u in self.c.snapshot()["ues"] if u["id"] == "ue2")["travel"])
+
 
 if __name__ == "__main__":
     unittest.main()

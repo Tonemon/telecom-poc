@@ -163,6 +163,49 @@ class WorldApiTest(ApiTest):
     def test_world_has_radio_clock(self):
         self.assertIn("radio", self.request("GET", "/world")[1])
 
+    def cell(self, cell_id):
+        return next(c for c in self.request("GET", "/world")[1]["cells"] if c["id"] == cell_id)
+
+    def test_put_cell_position(self):
+        status, body = self.request("PUT", "/cells/B/position", {"x": 9, "y": 0})
+        self.assertEqual(status, 200)
+        self.assertEqual((body["id"], body["x"], body["y"]), ("B", 9.0, 0.0))
+        self.assertEqual(body["command"], "curl -X PUT -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "-d '{\"x\": 9, \"y\": 0}' http://127.0.0.1:8090/cells/B/position")
+        self.assertEqual(self.cell("B")["x"], 9.0)
+        self.assertEqual(self.ue("ue3")["gains"]["B"], 1.0)
+
+    def test_put_cell_position_dry_run(self):
+        status, body = self.request("PUT", "/cells/B/position?dry_run=1", {"x": 30, "y": 0})
+        self.assertEqual(status, 200)
+        self.assertEqual({u["id"]: u["effect"] for u in body["ues"]}["ue3"], "loses")
+        self.assertEqual(self.cell("B")["x"], 10.0)
+
+    def test_put_cell_position_errors(self):
+        self.assertEqual(self.request("PUT", "/cells/Z/position", {"x": 1, "y": 0})[0], 404)
+        self.assertEqual(self.request("PUT", "/cells/B/position", {"x": "far", "y": 0})[0], 400)
+        self.assertEqual(self.request("PUT", "/cells/B/position", {"x": 1})[0], 400)
+        self.assertEqual(self.request("POST", "/cells/B/position", {"x": 1, "y": 0})[0], 404)
+
+    def test_post_stop(self):
+        self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": 1000})
+        status, body = self.request("POST", "/ues/ue2/stop")
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["travel"])
+        self.assertEqual(body["command"], "curl -X POST -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "http://127.0.0.1:8090/ues/ue2/stop")
+
+    def test_action_responses_have_command(self):
+        body = self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": 1000})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 TO=8,0 SPEED=1000")
+        body = self.request("PUT", "/ues/ue2/position", {"x": 5.5, "y": 1})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 AT=5.5,1")
+        body = self.request("PUT", "/ues/ue2/shielded", {"shielded": True})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 SHIELD=on")
+
+    def test_world_has_pathloss(self):
+        self.assertEqual(self.request("GET", "/world")[1]["pathloss"]["edge_km"], 7.0)
+
 
 if __name__ == "__main__":
     unittest.main()
