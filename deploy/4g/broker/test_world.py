@@ -172,6 +172,64 @@ class TestTravel(unittest.TestCase):
         self.assertEqual(set(ue), {"id", "x", "y", "shielded", "travel", "gains"})
         self.assertEqual(set(ue["gains"]), {"A", "B"})
 
+    def test_snapshot_has_pathloss(self):
+        self.assertEqual(World(config()).snapshot()["pathloss"], PATHLOSS)
+
+
+class TestCellsAndStop(unittest.TestCase):
+    def cell(self, w, cell_id):
+        return next(c for c in w.snapshot()["cells"] if c["id"] == cell_id)
+
+    def test_place_cell_moves_cell_and_changes_gains(self):
+        w = World(config())
+        w.place_cell("B", 3, 0)
+        self.assertAlmostEqual(w.gains()[("ue2", "B")], gain_for_distance(1.0, PATHLOSS))
+        self.assertEqual((self.cell(w, "B")["x"], self.cell(w, "B")["y"]), (3.0, 0.0))
+
+    def test_place_cell_on_top_of_ue_gives_full_gain(self):
+        w = World(config())
+        w.place_cell("B", 2, 0)
+        self.assertEqual(w.gains()[("ue2", "B")], 1.0)
+
+    def test_place_cell_rejects_unknown_and_nonfinite(self):
+        w = World(config())
+        with self.assertRaises(KeyError):
+            w.place_cell("Z", 1, 1)
+        with self.assertRaises(ValueError):
+            w.place_cell("A", float("nan"), 0)
+
+    def test_dry_run_reports_lost_coverage_and_changes_nothing(self):
+        w = World(config())
+        res = {r["id"]: r for r in w.dry_run_cell("B", 30, 0)}
+        self.assertEqual(res["ue3"]["effect"], "loses")
+        self.assertEqual(res["ue1"]["effect"], "none")
+        self.assertGreater(res["ue3"]["before"]["B"], 0)
+        self.assertEqual(res["ue3"]["after"]["B"], 0.0)
+        self.assertEqual(self.cell(w, "B")["x"], 10.0)
+
+    def test_dry_run_reports_gained_coverage(self):
+        w = World(config())
+        w.place("ue1", 25, 0)
+        self.assertEqual({r["id"]: r for r in w.dry_run_cell("A", 24, 0)}["ue1"]["effect"], "gains")
+
+    def test_dry_run_shielded_ue_is_unaffected(self):
+        w = World(config())
+        w.set_shielded("ue3", True)
+        self.assertEqual({r["id"]: r for r in w.dry_run_cell("B", 30, 0)}["ue3"]["effect"], "none")
+
+    def test_stop_cancels_travel_in_place(self):
+        w = World(config())
+        w.travel("ue2", 8, 0, 1000)
+        w.tick(3.6)  # 1 km
+        w.stop("ue2")
+        ue = next(u for u in w.snapshot()["ues"] if u["id"] == "ue2")
+        self.assertIsNone(ue["travel"])
+        self.assertAlmostEqual(ue["x"], 3.0)
+
+    def test_stop_unknown_ue(self):
+        with self.assertRaises(KeyError):
+            World(config()).stop("ue9")
+
 
 if __name__ == "__main__":
     unittest.main()

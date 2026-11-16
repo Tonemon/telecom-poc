@@ -1,0 +1,4 @@
+[{"name": "telecom-poc",
+  "air": {"url": "http://172.22.0.41:8090", "token": "dev-air-token"},
+  "agent": {"url": "http://172.22.0.42:8091", "token": "dev-agent-token"},
+  "provisioner": {"url": "http://172.22.0.30:8080", "token": "dev-operator-token"}}]

@@ -29,6 +29,7 @@ submodules: ## Initialise and update git submodules
 	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
 	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	$(COMPOSE_MULTI) up -d --build --no-deps agent
 	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
 	./deploy/4g/scripts/provision-multi.sh
 	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
@@ -67,6 +68,7 @@ submodules: ## Initialise and update git submodules
 	@echo "          $(CORE_4G)"
 	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	$(COMPOSE_MULTI) up -d --build --no-deps agent
 	@echo "==> [2/3] Starting the eNodeBs (enb-a, enb-b) — they S1-Setup to the MME..."
 	$(COMPOSE_MULTI) up -d enb-a enb-b
 	@echo ""
@@ -108,6 +110,19 @@ submodules: ## Initialise and update git submodules
 	@python3 ./deploy/4g/scripts/travel.py UE="$(UE)" TO="$(TO)" AT="$(AT)" SPEED="$(SPEED)" \
 	  SHIELD="$(SHIELD)" WATCH="$(WATCH)"
 
+COMPOSE_MAP := docker compose -f deploy/map/docker-compose.yml
+
+.PHONY: map
+map: ## Start the world map for the running multi-cell stack: http://127.0.0.1:8088
+	@docker network inspect telecom-poc-4g_epc >/dev/null 2>&1 || \
+	  { echo "No 4G stack running (network telecom-poc-4g_epc missing): start one first with 'make 4g-multi'"; exit 1; }
+	$(COMPOSE_MAP) up -d --build
+	@echo "Map: http://127.0.0.1:8088"
+
+.PHONY: map-down
+map-down: ## Stop the world map (the 4G stack keeps running)
+	$(COMPOSE_MAP) down
+
 # =====================================================================================
 # TEARDOWN
 # =====================================================================================
@@ -137,6 +152,14 @@ test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eN
 .PHONY: test-4g-handover
 test-4g-handover: ## Acceptance: ue2 travels A -> B -> A (real S1 handovers, ping survives); ue3 Faraday cage recovers
 	./deploy/4g/scripts/test-handover.sh
+
+.PHONY: test-map
+test-map: ## Acceptance: the world map drives the instance (health, inventory, tower move, pcaps, speedtest, suspend/resume, activity)
+	./deploy/4g/scripts/test-map.sh
+
+.PHONY: test-map-js
+test-map-js: ## Unit tests for the map page's logic (Node in a container; no stack needed)
+	docker run --rm -v "$(CURDIR)/tools/map:/src:ro" -w /src node:22.11.0-alpine sh -c "node --test jstest/*.test.mjs"
 
 .PHONY: test-provisioner-lifecycle
 test-provisioner-lifecycle: ## Prove suspend/resume and set-plan behave like a real telco: live detach, blocked reattach, signaled-not-enforced plan change

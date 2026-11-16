@@ -68,6 +68,8 @@ type NetworkInfo struct {
 	QCI         int    `json:"qci,omitempty"`
 	BearerCount int    `json:"bearer_count,omitempty"`
 	PDUState    string `json:"pdu_state,omitempty"`
+	// IP is the address the SMF gave this subscriber's session (from the SMF, not the device).
+	IP string `json:"ip,omitempty"`
 	// DL/UL are the MME's *live* in-memory AMBR, which can differ from the
 	// SubscriberView.DL/UL above (the provisioned value) for as long as a
 	// plan change hasn't reached this UE's next attach yet -- see

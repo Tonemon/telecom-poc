@@ -5,6 +5,7 @@ Time only moves through tick(dt_s): the air feeds it *radio* seconds (counted in
 UE travels at its speed in the same time base as the LTE procedures it triggers, however slowly
 the host runs the virtual radio.
 """
+import dataclasses
 import math
 import threading
 
@@ -35,7 +36,7 @@ def _finite(*values):
 class World:
     def __init__(self, cfg):
         self._lock = threading.Lock()
-        self._cells = list(cfg.cells)
+        self._cells = [dataclasses.replace(c) for c in cfg.cells]  # own copies: cells can move
         self._pathloss = {**DEFAULT_PATHLOSS, **(cfg.pathloss or {})}
         self._ues = {u.id: {"x": float(u.x), "y": float(u.y), "shielded": False, "travel": None}
                      for u in cfg.ues}
@@ -62,6 +63,39 @@ class World:
                 s["travel"] = None  # already there
             else:
                 s["travel"] = {"x": float(x), "y": float(y), "speed_kmh": float(speed_kmh)}
+
+    def place_cell(self, cell_id, x, y):
+        _finite(x, y)
+        with self._lock:
+            i = self._cell_index(cell_id)
+            self._cells[i] = dataclasses.replace(self._cells[i], x=float(x), y=float(y))
+
+    def dry_run_cell(self, cell_id, x, y):
+        """What moving a cell would do to every UE, without moving it."""
+        _finite(x, y)
+        with self._lock:
+            i = self._cell_index(cell_id)
+            moved = list(self._cells)
+            moved[i] = dataclasses.replace(moved[i], x=float(x), y=float(y))
+            out = []
+            for ue in self._order:
+                s = self._ues[ue]
+                before = {c.id: self._gain(s, c) for c in self._cells}
+                after = {c.id: self._gain(s, c) for c in moved}
+                had, has = any(before.values()), any(after.values())
+                effect = "gains" if has and not had else "loses" if had and not has else "none"
+                out.append({"id": ue, "before": before, "after": after, "effect": effect})
+            return out
+
+    def stop(self, ue):
+        with self._lock:
+            self._ue(ue)["travel"] = None
+
+    def _cell_index(self, cell_id):
+        for i, c in enumerate(self._cells):
+            if c.id == cell_id:
+                return i
+        raise KeyError(cell_id)
 
     def set_shielded(self, ue, shielded):
         with self._lock:
@@ -109,4 +143,4 @@ class World:
                             "travel": travel,
                             "gains": {c.id: self._gain(s, c) for c in self._cells}})
             return {"cells": [{"id": c.id, "name": c.name, "x": c.x, "y": c.y} for c in self._cells],
-                    "ues": ues}
+                    "ues": ues, "pathloss": dict(self._pathloss)}

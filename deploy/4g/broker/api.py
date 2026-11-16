@@ -7,6 +7,14 @@
   PUT  /ues/{id}/shielded     {"shielded": true}: the Faraday cage, no radio at all
   PUT  /ues/{id}/gains        {"A": 0.1, "B": 1.0}: debug override of that UE's link gains,
                               until its next move/position/shielding change
+  POST /ues/{id}/stop         cancel a travel where the UE is now
+  PUT  /cells/{id}/position   {"x": 6, "y": 0}: move a cell; ?dry_run=1 only reports, per UE,
+                              the gains before/after and whether it gains or loses coverage
+  POST /activity/random       one decision per UE (stay, or a random trip); 409 while realtime
+  PUT  /activity/realtime     {"on": true}: keep deciding after each arrival; off stops every
+                              automated UE where it is
+
+Action responses carry "command": the same action as a terminal command.
 
 Every route except /healthz needs `Authorization: Bearer <token>`. A gains request is validated
 completely before anything is applied, so a bad value never leaves a half-changed UE.
@@ -15,9 +23,29 @@ import hmac
 import json
 import math
 import re
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-UE_PATH = re.compile(r"^/ues/([^/]+)/(gains|travel|position|shielded)$")
+from control import Busy
+
+UE_PATH = re.compile(r"^/ues/([^/]+)/(gains|travel|position|shielded|stop)$")
+CELL_PATH = re.compile(r"^/cells/([^/]+)/position$")
+DRY_RUN_VALUES = {"1": True, "true": True, "yes": True, "0": False, "false": False, "no": False}
+CURL = 'curl -X {method} -H "Authorization: Bearer $AIR_TOKEN"{data} http://127.0.0.1:8090{path}'
+
+
+def curl_command(method, path, body=None):
+    data = f" -d '{json.dumps(body)}'" if body is not None else ""
+    return CURL.format(method=method, data=data, path=path)
+
+
+def _g(v):
+    return f"{v:g}"
+
+
+def _num_json(v):
+    """9.0 -> 9 so a command reads like what a person would type."""
+    return int(v) if float(v).is_integer() else v
 
 
 class ApiError(Exception):
@@ -87,18 +115,37 @@ def make_server(port, token, world, set_gain):
                 if not self._authorized():
                     raise ApiError(401, "missing or wrong bearer token")
                 snap = world.snapshot()
-                if method == "GET" and self.path == "/world":
+                url = urllib.parse.urlsplit(self.path)
+                if method == "GET" and url.path == "/world":
                     return self._send(200, snap)
-                m = UE_PATH.match(self.path)
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if url.path == "/activity/random" and method == "POST":
+                    try:
+                        plans = world.random_activity()
+                    except Busy as e:
+                        raise ApiError(409, str(e))
+                    return self._send(200, {"plans": plans,
+                                            "command": curl_command("POST", "/activity/random")})
+                if url.path == "/activity/realtime" and method == "PUT":
+                    body = _json_object(raw, '{"on": true}')
+                    if not isinstance(body.get("on"), bool):
+                        raise ApiError(400, "on must be true or false")
+                    stopped = world.set_realtime(body["on"])
+                    return self._send(200, {"realtime": body["on"], "stopped": stopped,
+                                            "command": curl_command("PUT", "/activity/realtime",
+                                                                    {"on": body["on"]})})
+                m = CELL_PATH.match(url.path)
+                if m and method == "PUT":
+                    return self._cell(m.group(1), url.query, raw, snap)
+                m = UE_PATH.match(url.path)
                 route = (method, m.group(2)) if m else None
                 if route not in {("PUT", "gains"), ("POST", "travel"), ("PUT", "position"),
-                                 ("PUT", "shielded")}:
+                                 ("PUT", "shielded"), ("POST", "stop")}:
                     raise ApiError(404, f"no route: {method} {self.path}")
                 ue = m.group(1)
                 ues = {u["id"]: u for u in snap["ues"]}
                 if ue not in ues:
                     raise ApiError(404, f"unknown UE: {ue}")
-                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 kind = m.group(2)
                 if kind == "gains":
                     gains = _parse_gains(raw, {c["id"] for c in snap["cells"]})
@@ -113,21 +160,43 @@ def make_server(port, token, world, set_gain):
                     if (x, y) == (ues[ue]["x"], ues[ue]["y"]):
                         raise ApiError(400, f"{ue} is already at ({x:g}, {y:g})")
                     world.travel(ue, x, y, speed)
-                    return self._send(202, self._ue(ue))
+                    return self._send(202, self._ue(
+                        ue, f"make 4g-travel UE={ue} TO={_g(x)},{_g(y)} SPEED={_g(speed)}"))
                 if kind == "position":
                     body = _json_object(raw, '{"x": 8, "y": 0}')
-                    world.place(ue, _number(body, "x"), _number(body, "y"))
-                    return self._send(200, self._ue(ue))
+                    x, y = _number(body, "x"), _number(body, "y")
+                    world.place(ue, x, y)
+                    return self._send(200, self._ue(ue, f"make 4g-travel UE={ue} AT={_g(x)},{_g(y)}"))
+                if kind == "stop":
+                    world.stop(ue)
+                    return self._send(200, self._ue(ue, curl_command("POST", f"/ues/{ue}/stop")))
                 body = _json_object(raw, '{"shielded": true}')
                 if not isinstance(body.get("shielded"), bool):
                     raise ApiError(400, "shielded must be true or false")
                 world.set_shielded(ue, body["shielded"])
-                return self._send(200, self._ue(ue))
+                return self._send(200, self._ue(
+                    ue, f"make 4g-travel UE={ue} SHIELD={'on' if body['shielded'] else 'off'}"))
             except ApiError as e:
                 self._send(e.status, {"error": e.message})
 
-        def _ue(self, ue):
-            return next(u for u in world.snapshot()["ues"] if u["id"] == ue)
+        def _cell(self, cell, query, raw, snap):
+            if cell not in {c["id"] for c in snap["cells"]}:
+                raise ApiError(404, f"unknown cell: {cell}")
+            body = _json_object(raw, '{"x": 6, "y": 0}')
+            x, y = _number(body, "x"), _number(body, "y")
+            dry = urllib.parse.parse_qs(query).get("dry_run", ["0"])[-1].lower()
+            if dry not in DRY_RUN_VALUES:
+                raise ApiError(400, "dry_run must be 1/true/yes or 0/false/no")
+            if DRY_RUN_VALUES[dry]:
+                return self._send(200, {"id": cell, "x": x, "y": y, "ues": world.dry_run_cell(cell, x, y)})
+            world.place_cell(cell, x, y)
+            path = f"/cells/{cell}/position"
+            return self._send(200, {"id": cell, "x": x, "y": y,
+                                    "command": curl_command("PUT", path, {"x": _num_json(x), "y": _num_json(y)})})
+
+        def _ue(self, ue, command=None):
+            u = next(u for u in world.snapshot()["ues"] if u["id"] == ue)
+            return {**u, "command": command} if command else u
 
         def do_GET(self):
             self._handle("GET")

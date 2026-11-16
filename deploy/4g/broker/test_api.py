@@ -163,6 +163,98 @@ class WorldApiTest(ApiTest):
     def test_world_has_radio_clock(self):
         self.assertIn("radio", self.request("GET", "/world")[1])
 
+    def cell(self, cell_id):
+        return next(c for c in self.request("GET", "/world")[1]["cells"] if c["id"] == cell_id)
+
+    def test_put_cell_position(self):
+        status, body = self.request("PUT", "/cells/B/position", {"x": 9, "y": 0})
+        self.assertEqual(status, 200)
+        self.assertEqual((body["id"], body["x"], body["y"]), ("B", 9.0, 0.0))
+        self.assertEqual(body["command"], "curl -X PUT -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "-d '{\"x\": 9, \"y\": 0}' http://127.0.0.1:8090/cells/B/position")
+        self.assertEqual(self.cell("B")["x"], 9.0)
+        self.assertEqual(self.ue("ue3")["gains"]["B"], 1.0)
+
+    def test_put_cell_position_dry_run(self):
+        status, body = self.request("PUT", "/cells/B/position?dry_run=1", {"x": 30, "y": 0})
+        self.assertEqual(status, 200)
+        self.assertEqual({u["id"]: u["effect"] for u in body["ues"]}["ue3"], "loses")
+        self.assertEqual(self.cell("B")["x"], 10.0)
+
+    def test_put_cell_position_errors(self):
+        self.assertEqual(self.request("PUT", "/cells/Z/position", {"x": 1, "y": 0})[0], 404)
+        self.assertEqual(self.request("PUT", "/cells/B/position", {"x": "far", "y": 0})[0], 400)
+        self.assertEqual(self.request("PUT", "/cells/B/position", {"x": 1})[0], 400)
+        self.assertEqual(self.request("POST", "/cells/B/position", {"x": 1, "y": 0})[0], 404)
+
+    def test_post_stop(self):
+        self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": 1000})
+        status, body = self.request("POST", "/ues/ue2/stop")
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["travel"])
+        self.assertEqual(body["command"], "curl -X POST -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "http://127.0.0.1:8090/ues/ue2/stop")
+
+    def test_action_responses_have_command(self):
+        body = self.request("POST", "/ues/ue2/travel", {"x": 8, "y": 0, "speed_kmh": 1000})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 TO=8,0 SPEED=1000")
+        body = self.request("PUT", "/ues/ue2/position", {"x": 5.5, "y": 1})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 AT=5.5,1")
+        body = self.request("PUT", "/ues/ue2/shielded", {"shielded": True})[1]
+        self.assertEqual(body["command"], "make 4g-travel UE=ue2 SHIELD=on")
+
+    def test_post_random_activity(self):
+        status, body = self.request("POST", "/activity/random")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["plans"]), 3)
+        self.assertEqual(body["command"], "curl -X POST -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "http://127.0.0.1:8090/activity/random")
+
+    def test_random_activity_409_while_realtime(self):
+        self.request("PUT", "/activity/realtime", {"on": True})
+        status, body = self.request("POST", "/activity/random")
+        self.assertEqual(status, 409)
+        self.assertIn("realtime", body["error"])
+
+    def test_put_realtime_on_off(self):
+        status, body = self.request("PUT", "/activity/realtime", {"on": True})
+        self.assertEqual((status, body["realtime"]), (200, True))
+        self.assertEqual(body["command"], "curl -X PUT -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "-d '{\"on\": true}' http://127.0.0.1:8090/activity/realtime")
+        self.assertTrue(self.request("GET", "/world")[1]["activity"]["realtime"])
+        status, body = self.request("PUT", "/activity/realtime", {"on": False})
+        self.assertEqual((status, body["realtime"]), (200, False))
+        self.assertIsInstance(body["stopped"], list)
+
+    def test_put_realtime_bad_body_400(self):
+        for bad in ({"on": "yes"}, {}, {"on": 1}):
+            self.assertEqual(self.request("PUT", "/activity/realtime", bad)[0], 400, bad)
+
+    def test_world_reports_automation_state(self):
+        self.assertEqual(self.ue("ue1")["automation"], "manual")
+
+    def test_world_has_pathloss(self):
+        self.assertEqual(self.request("GET", "/world")[1]["pathloss"]["edge_km"], 7.0)
+
+    def cell_b(self):
+        return next(c for c in self.request("GET", "/world")[1]["cells"] if c["id"] == "B")["x"]
+
+    def test_dry_run_true_and_yes_do_not_move(self):
+        for v in ("1", "true", "yes"):
+            status, body = self.request("PUT", f"/cells/B/position?dry_run={v}", {"x": 30, "y": 0})
+            self.assertEqual((status, "ues" in body), (200, True), v)
+            self.assertEqual(self.cell_b(), 10.0, v)
+
+    def test_dry_run_false_moves(self):
+        self.assertEqual(self.request("PUT", "/cells/B/position?dry_run=0", {"x": 11, "y": 0})[0], 200)
+        self.assertEqual(self.cell_b(), 11.0)
+
+    def test_unknown_dry_run_value_is_400(self):
+        status, body = self.request("PUT", "/cells/B/position?dry_run=maybe", {"x": 30, "y": 0})
+        self.assertEqual(status, 400)
+        self.assertIn("dry_run", body["error"])
+        self.assertEqual(self.cell_b(), 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telecom-poc map</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topbar">
+  <div id="top"></div>
+  <div id="controls"></div>
+</header>
+<main>
+  <div id="map">
+    <canvas id="terrain"></canvas>
+    <canvas id="heat"></canvas>
+    <svg id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="cursor"></div>
+    <div id="legend">
+      <span><b class="dot"></b> connected</span>
+      <span><b class="dot hollow"></b> idle</span>
+      <span><b class="dot grey"></b> no service / down</span>
+      <span><b class="line"></b> serving</span>
+      <span><b class="line dashed"></b> also heard</span>
+      <span><b class="dotted"></b> handover line</span>
+    </div>
+    <div id="bottom"></div>
+  </div>
+  <aside id="sidebar">
+    <div id="lists"></div>
+    <div id="card"><div id="card-info"></div><div id="card-actions"></div></div>
+    <div id="debug" hidden></div>
+  </aside>
+</main>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

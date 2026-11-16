@@ -31,6 +31,10 @@ make 4g-travel UE=ue3 SHIELD=on # Faraday cage: no coverage (SHIELD=off to come 
 # Acceptance tests (each starts its own stack):
 make test-4g-multi        # 3 UEs attach across 2 cells, 2 share one eNB
 make test-4g-handover     # ue2 travels A -> B -> A with a ping running; Faraday cage recovers
+make test-map             # the world map drives the network end to end
+
+# The world map (on a running multi-cell stack): open http://127.0.0.1:8088
+make map                  # make map-down to stop it
 ```
 
 ## Docs
@@ -42,6 +46,7 @@ Parts (deep dives):
 - [`docs/parts/1-provisioning.md`](docs/parts/1-provisioning.md) - provisioning, crypto, suspend/resume enforcement
 - [`docs/parts/2-multi-ue-broker.md`](docs/parts/2-multi-ue-broker.md) - multi-UE / multi-cell (the shared air)
 - [`docs/parts/3-handover.md`](docs/parts/3-handover.md) - handover, travel and no coverage
+- [`docs/parts/4-world-map.md`](docs/parts/4-world-map.md) - the world map: see and drive the network from a web page
 
 Experiments and findings:
 - [`docs/experiments/1-radio-stability.md`](docs/experiments/1-radio-stability.md) - why UEs sometimes never attached, and what fixed it

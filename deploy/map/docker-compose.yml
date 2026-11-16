@@ -1,0 +1,22 @@
+# The world map (tools/map): serves the page on 127.0.0.1:8088 and proxies its calls to the
+# instances in instances.json (air, agent, provisioner), adding their tokens. Runs next to a
+# running multi-cell 4G stack: `make 4g-multi && make map`.
+name: telecom-poc-map
+
+services:
+  map:
+    image: telecom-poc/map:local
+    build:
+      context: ../../tools/map
+    volumes:
+      - "./instances.json:/conf/instances.json:ro"
+    ports:
+      - "127.0.0.1:8088:8088"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.43
+
+networks:
+  epc:
+    external: true
+    name: telecom-poc-4g_epc

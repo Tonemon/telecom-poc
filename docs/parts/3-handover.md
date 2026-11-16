@@ -200,6 +200,8 @@ With a ping every 0.2 s, 0.1 % is about one ping in a thousand: each handover co
 - **One frequency**: both cells share an EARFCN, so all handovers are intra-frequency; no measurement gaps are needed.
 
 
+The world map (`make map`, see [`4-world-map.md`](4-world-map.md)) shows all of this live: coverage, handover lines, signal lines and a flag at every handover, and it can drive the same travel, Faraday cage and tower moves with a click.
+
 ## 9. Try it yourself (exercises)
 
 1. **Too fast.** `make 4g-travel UE=ue2 TO=8 SPEED=5000`. Does `ue2` hand over, or lose the connection and attach again (new IP)? Check `$C logs ue2 | grep -E "HO to|RLF|Attach"`.

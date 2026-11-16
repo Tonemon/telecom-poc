@@ -107,6 +107,25 @@ services:
     devices: ["/dev/net/tun"]
     depends_on: [enb-b]
 
+  # ---- The agent: fixed actions on this instance for the world map ----------
+  # Inventory (from the configs), health, pcaps, live ping and speedtest. Gets the Docker
+  # socket, but only exposes its own fixed routes (bearer token AGENT_TOKEN), host-local.
+  agent:
+    image: telecom-poc/agent:local
+    build:
+      context: ../../tools/agent
+    environment:
+      AGENT_TOKEN: "${AGENT_TOKEN:-dev-agent-token}"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./config/multi:/conf:ro"
+      - "./pcap:/pcap"
+    ports:
+      - "127.0.0.1:8091:8091"
+    networks:
+      epc:
+        ipv4_address: 172.22.0.42
+
   # ---- The air: one shared radio medium for both cells and all UEs ------------
   air:
     build:
