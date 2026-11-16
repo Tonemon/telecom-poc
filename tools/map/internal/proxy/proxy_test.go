@@ -36,9 +36,15 @@ func handler(t *testing.T, got *seen, status int, reply string) http.Handler {
 		Provisioner: config.Endpoint{URL: up.URL, Token: "dev-operator-token"}}})
 }
 
+// do sends a request the way the page does: from localhost, with X-Map on changes.
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Host = "127.0.0.1:8088"
+	if method != "GET" {
+		r.Header.Set("X-Map", "1")
+	}
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+	h.ServeHTTP(rec, r)
 	return rec
 }
 
@@ -146,5 +152,55 @@ func TestTelcoctlCommand(t *testing.T) {
 		if got := TelcoctlCommand(c.method, c.path, []byte(c.body)); got != c.want {
 			t.Errorf("%s %s: %q, want %q", c.method, c.path, got, c.want)
 		}
+	}
+}
+
+func req(h http.Handler, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Host = "127.0.0.1:8088"
+	for k, v := range hdr {
+		if k == "Host" {
+			r.Host = v
+		} else {
+			r.Header.Set(k, v)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
+// Another website must not be able to drive the map through the user's browser.
+func TestCrossSiteRequestsRefused(t *testing.T) {
+	var got seen
+	h := handler(t, &got, 200, `{}`)
+	path := "/api/instances/telecom-poc/provisioner/subscribers/999700000000003/suspend"
+	cases := []struct {
+		name string
+		hdr  map[string]string
+		code int
+	}{
+		{"simple cross-site POST without the page's header", map[string]string{"Content-Type": "text/plain"}, 403},
+		{"other origin", map[string]string{"X-Map": "1", "Origin": "https://evil.example"}, 403},
+		{"DNS rebinding host", map[string]string{"X-Map": "1", "Host": "evil.example:8088"}, 403},
+		{"the page itself", map[string]string{"X-Map": "1", "Origin": "http://127.0.0.1:8088"}, 200},
+		{"localhost name", map[string]string{"X-Map": "1", "Host": "localhost:8088"}, 200},
+	}
+	for _, c := range cases {
+		got = seen{}
+		rec := req(h, "POST", path, `{"reason":"FRAUD"}`, c.hdr)
+		if rec.Code != c.code || (c.code == 403 && got.method != "") {
+			t.Errorf("%s: %d (upstream %+v), want %d", c.name, rec.Code, got, c.code)
+		}
+	}
+	// Reading through a rebound name is refused too; reading from localhost is fine.
+	if rec := req(h, "GET", "/api/instances/telecom-poc/agent/inventory", "", map[string]string{"Host": "evil.example"}); rec.Code != 403 {
+		t.Errorf("GET via rebound host: %d, want 403", rec.Code)
+	}
+	if rec := req(h, "GET", "/api/instances", "", map[string]string{"Host": "evil.example"}); rec.Code != 403 {
+		t.Errorf("instance list via rebound host: %d, want 403", rec.Code)
+	}
+	if rec := req(h, "GET", "/api/instances/telecom-poc/air/world", "", nil); rec.Code != 200 {
+		t.Errorf("GET from the page: %d, want 200", rec.Code)
 	}
 }

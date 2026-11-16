@@ -9,7 +9,8 @@ IMSI_UE3=999700000000003
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 py() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
-code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+code() { curl -s -o /dev/null -w '%{http_code}' -H 'X-Map: 1' "$@"; }
+curl() { command curl -H 'X-Map: 1' "$@"; }  # the map server only takes changes that carry X-Map
 
 make 4g-multi
 for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh "$u"; done

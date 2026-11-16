@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -60,8 +61,43 @@ var allow = map[string][]route{
 
 type ctxKey struct{}
 
-// New serves GET /api/instances and /api/instances/{name}/{air|agent|provisioner}/{path...}.
+// New serves GET /api/instances and /api/instances/{name}/{air|agent|provisioner}/{path...},
+// behind guard: only the map's own page may use it.
 func New(instances []config.Instance) http.Handler {
+	return guard(routes(instances))
+}
+
+// guard refuses what another website could make the user's browser send: a request for any
+// host name but localhost (DNS rebinding), one from another origin, and a change (anything but
+// GET) without the page's X-Map header, which a cross-site page cannot add without a CORS
+// preflight that this server never approves.
+func guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+		switch strings.Trim(host, "[]") {
+		case "127.0.0.1", "localhost", "::1":
+		default:
+			writeJSON(w, 403, map[string]string{"error": "the map only answers on localhost"})
+			return
+		}
+		if o := r.Header.Get("Origin"); o != "" {
+			if u, err := url.Parse(o); err != nil || u.Host != r.Host {
+				writeJSON(w, 403, map[string]string{"error": "cross-origin request refused"})
+				return
+			}
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Map") != "1" {
+			writeJSON(w, 403, map[string]string{"error": "missing X-Map header"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func routes(instances []config.Instance) http.Handler {
 	byName := map[string]config.Instance{}
 	var names []map[string]string
 	for _, in := range instances {

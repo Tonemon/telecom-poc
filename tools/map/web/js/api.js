@@ -24,7 +24,8 @@ export async function get(service, path) {
 // send returns {status, json, command}: command is the terminal equivalent from the JSON
 // "command" field (air, agent) or the X-Command header (provisioner).
 export async function send(service, method, path, body) {
-  const init = { method, headers: {} };
+  // X-Map: the map server only accepts changes that carry it (another website cannot add it).
+  const init = { method, headers: { "X-Map": "1" } };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
     init.headers["Content-Type"] = "application/json";
