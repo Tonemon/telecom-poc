@@ -29,14 +29,20 @@ func (a *Actions) Speedtest(ctx context.Context, ue string) (Speed, error) {
 	if err != nil {
 		return Speed{}, err
 	}
-	a.mu.Lock()
-	if a.speedtests[ue] {
-		a.mu.Unlock()
-		return Speed{}, fmt.Errorf("%s is already running a speedtest: %w", ue, ErrBusy)
+	// The UPF runs a single iperf3 server, so against it one speedtest runs at a time in total;
+	// against a public server, one per device.
+	key, msg := ue, ue+" is already running a speedtest"
+	if a.iperfServer == "" {
+		key, msg = "@upf", "another speedtest is running (the gateway's test server takes one at a time)"
 	}
-	a.speedtests[ue] = true
+	a.mu.Lock()
+	if a.speedtests[key] {
+		a.mu.Unlock()
+		return Speed{}, fmt.Errorf("%s: %w", msg, ErrBusy)
+	}
+	a.speedtests[key] = true
 	a.mu.Unlock()
-	defer func() { a.mu.Lock(); delete(a.speedtests, ue); a.mu.Unlock() }()
+	defer func() { a.mu.Lock(); delete(a.speedtests, key); a.mu.Unlock() }()
 
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()

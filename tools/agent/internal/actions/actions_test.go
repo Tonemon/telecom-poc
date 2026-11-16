@@ -366,10 +366,15 @@ func TestComponentsS1UnknownWhenMMEUnreachable(t *testing.T) {
 type blockingDocker struct {
 	*fakeDocker
 	entered, release chan struct{}
+	match            string // commands containing this block (default "tcpdump")
 }
 
 func (b *blockingDocker) Exec(ctx context.Context, c string, cmd []string) (docker.ExecResult, error) {
-	if strings.Contains(strings.Join(cmd, " "), "tcpdump") {
+	m := b.match
+	if m == "" {
+		m = "tcpdump"
+	}
+	if strings.Contains(strings.Join(cmd, " "), m) {
 		b.entered <- struct{}{}
 		<-b.release
 	}
@@ -455,5 +460,41 @@ func TestPingStartKillsALeftoverPing(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if ex := f.joined()[0]; !strings.Contains(ex, "kill -INT $(cat /tmp/agent-ping.pid)") {
 		t.Fatalf("ping start does not clean up a leftover ping: %q", ex)
+	}
+}
+
+// The UPF runs one iperf3 server: a second speedtest (on any device) must wait its turn.
+func TestSecondSpeedtestToUPFIsBusy(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue1"), running("ue2"), running("upf")},
+		stdout: map[string]string{"iperf3 -c": iperfJSON}}
+	b := &blockingDocker{fakeDocker: f, entered: make(chan struct{}, 2), release: make(chan struct{})}
+	b.match = "iperf3 -c"
+	a := New(b, inv, "telecom-poc-4g", t.TempDir(), "")
+	first := make(chan error, 1)
+	go func() { _, err := a.Speedtest(context.Background(), "ue1"); first <- err }()
+	<-b.entered
+	if _, err := a.Speedtest(context.Background(), "ue2"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("second speedtest: %v, want ErrBusy", err)
+	}
+	close(b.release)
+	if err := <-first; err != nil {
+		t.Fatalf("first speedtest: %v", err)
+	}
+}
+
+// A capture whose container stopped has ended with it: report that, do not fail.
+func TestStopPcapAfterContainerStopped(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue2")}}
+	a := newActions(t, f)
+	if _, err := a.StartPcap(context.Background(), "ue2"); err != nil {
+		t.Fatal(err)
+	}
+	f.containers[0].State = "exited"
+	info, err := a.StopPcap(context.Background(), "ue2")
+	if err != nil || info.Note == "" || !strings.Contains(info.Note, "stopped") {
+		t.Fatalf("stop after the container stopped: %+v, %v", info, err)
+	}
+	if len(a.Capturing()) != 0 {
+		t.Fatal("the capture should be over")
 	}
 }

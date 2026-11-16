@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ type PcapInfo struct {
 	File      string    `json:"file"`
 	Started   time.Time `json:"started"`
 	Command   string    `json:"command"`
+	Note      string    `json:"note,omitempty"`
 }
 
 type PcapFile struct {
@@ -91,7 +93,12 @@ func (a *Actions) StopPcap(ctx context.Context, component string) (PcapInfo, err
 		return PcapInfo{}, fmt.Errorf("%s: %w", component, ErrNotCapturing)
 	}
 	c, err := a.running(ctx, component)
-	if err == nil {
+	switch {
+	case errors.Is(err, ErrNotRunning):
+		// tcpdump ran inside that container, so it ended with it: the capture is over.
+		info.Note = "the container stopped, so the capture ended with it; the file may be cut off at the end"
+		err = nil
+	case err == nil:
 		_, err = a.cli.Exec(ctx, c.Name, []string{"sh", "-c", "kill -INT $(cat /tmp/agent-pcap.pid) && rm -f /tmp/agent-pcap.pid"})
 	}
 	a.mu.Lock()
