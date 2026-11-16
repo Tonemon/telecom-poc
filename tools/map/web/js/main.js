@@ -1,6 +1,10 @@
 // Wires the page together: picks the instance, starts polling, redraws on every change.
 
+import * as actions from "./actions.js";
 import * as activity from "./activity.js";
+import * as commands from "./commands.js";
+import * as mapfile from "./mapfile.js";
+import * as pingstrip from "./pingstrip.js";
 import * as api from "./api.js";
 import { margin, renderActions, renderInfo } from "./cards.js";
 import { drawHeat, drawOverlay, drawTerrain } from "./draw.js";
@@ -108,6 +112,10 @@ async function main() {
   });
   await tooltips.init();
   move.init();
+  commands.init();
+  actions.init();
+  pingstrip.init();
+  mapfile.init();
   activity.init();
   select(null);
   if (page.debug) $("debug").hidden = false;

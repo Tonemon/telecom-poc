@@ -5,13 +5,14 @@ import * as api from "./api.js";
 import { actionBuilders } from "./cards.js";
 import { EXTENT, label } from "./grid.js";
 import { getView, page, redraw } from "./main.js";
+import { cmdButton, remember } from "./commands.js";
 import { cellColor, model, refreshWorld } from "./state.js";
 
 const SPEED_MIN = 300, SPEED_MAX = 1500, SPEED_DEFAULT = 1000;
 const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 const bottom = () => document.getElementById("bottom");
 
-let pick = null;   // {ue} while choosing a destination; {ue, x, y} once chosen
+let pick = null;   // {ue, mode: "travel"|"jump"} while choosing a destination; plus {x, y} once chosen
 let drag = null;   // {cell, x, y, startX, startY, moved}
 
 function realMinutes(km, speed) {
@@ -52,10 +53,11 @@ function cancel() {
 
 async function sendTravel() {
   const speed = Number(document.getElementById("speed").value);
-  const r = await api.send("air", "POST", `/ues/${encodeURIComponent(pick.ue)}/travel`, { x: +pick.x.toFixed(2), y: +pick.y.toFixed(2), speed_kmh: speed });
-  pick = null;
+  const ue = pick.ue;
+  const r = await api.send("air", "POST", `/ues/${encodeURIComponent(ue)}/travel`, { x: +pick.x.toFixed(2), y: +pick.y.toFixed(2), speed_kmh: speed });
+  pick = { ue };
   if (!r.ok) showMessage(`<span class="error">${esc(r.json?.error || r.status)}</span>`);
-  else { page.lastCommand.travel = r.command; bottom().innerHTML = ""; }
+  else { remember(`travel:${pick?.ue || ""}`, r.command); bottom().innerHTML = ""; }
   await refreshWorld();
   redraw();
 }
@@ -79,14 +81,14 @@ async function confirmTower() {
   drag = null;
   bottom().innerHTML = "";
   if (!r.ok) showMessage(`<span class="error">${esc(r.json?.error || r.status)}</span>`);
-  else page.lastCommand[`cell:${d.cell}`] = r.command;
+  else remember(`cell:${d.cell}`, r.command);
   await refreshWorld();
   redraw();
 }
 
 function overlay(v) {
   let out = "";
-  if (pick && pick.x != null) {
+  if (pick && pick.x != null && model.world) {
     const ue = model.world.ues.find(u => u.id === pick.ue);
     const [ax, ay] = v.toScreen(ue.x, ue.y), [bx, by] = v.toScreen(pick.x, pick.y);
     out += `<line class="route" x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"/>
@@ -107,17 +109,29 @@ function worldAt(ev) {
   return getView().fromScreen(ev.clientX - r.left, ev.clientY - r.top);
 }
 
+// startPick lets the next map click choose where a UE goes: travel (then a speed) or jump.
+export function startPick(ue, mode = "travel") {
+  pick = { ue, mode };
+  showMessage(`Click ${mode === "jump" ? "where to put" : "a destination for"} <b>${esc(ue)}</b> on the map (Esc cancels).`);
+}
+
+async function jump(ue, x, y) {
+  const r = await api.send("air", "PUT", `/ues/${encodeURIComponent(ue)}/position`, { x: +x.toFixed(2), y: +y.toFixed(2) });
+  pick = null;
+  if (!r.ok) showMessage(`<span class="error">${esc(r.json?.error || r.status)}</span>`);
+  else { remember(`jump:${ue}`, r.command); bottom().innerHTML = ""; }
+  await refreshWorld();
+  redraw();
+}
+
 export function init() {
-  page.lastCommand ||= {};
   page.extras.push(overlay);
-  actionBuilders.ue.push(id => `<div class="actions"><button data-send-ue="${esc(id)}">Send somewhere…</button></div>`);
+  actionBuilders.ue.push(id => `<div class="actions"><button data-send-ue="${esc(id)}">Send somewhere…</button>${cmdButton(`travel:${id}`)}</div>`);
 
   document.addEventListener("click", ev => {
     const t = ev.target;
-    if (t.dataset.sendUe) {
-      pick = { ue: t.dataset.sendUe };
-      showMessage(`Click a destination on the map for <b>${esc(pick.ue)}</b>.`);
-    } else if (t.dataset.send !== undefined) sendTravel();
+    if (t.dataset.sendUe) startPick(t.dataset.sendUe, "travel");
+    else if (t.dataset.send !== undefined) sendTravel();
     else if (t.dataset.confirm !== undefined) confirmTower();
     else if (t.dataset.cancel !== undefined || t.dataset.close !== undefined) cancel();
   });
@@ -149,7 +163,8 @@ export function init() {
     if (!pick || ev.target.closest("[data-ue],[data-cell]")) return false;
     const [x, y] = worldAt(ev);
     if (!inside(x, y)) return true;
-    pick = { ue: pick.ue, x, y };
+    if (pick.mode === "jump") { jump(pick.ue, x, y); return true; }
+    pick = { ue: pick.ue, mode: "travel", x, y };
     travelPanel();
     redraw();
     return true;

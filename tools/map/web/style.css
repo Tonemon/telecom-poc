@@ -90,6 +90,15 @@ table.kv td { padding: 2px 0; }
 .error { color: var(--bad); }
 .toggle { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
 
+#card h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 12px 0 2px; }
+button.cmd { font: 12px ui-monospace, monospace; padding: 2px 6px; color: var(--muted); }
+.cmdpanel pre { background: #111827; color: #f9fafb; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px; }
+.files { margin: 4px 0; padding-left: 18px; }
+.ok { color: #166534; }
+#action-result { margin: 8px 0; font-size: 13px; }
+.filebtn { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.strip { display: block; background: #f1f5f9; border-radius: 4px; margin-top: 4px; }
+
 @media (max-width: 800px) {
   main { flex-direction: column; }
   #sidebar { width: auto; max-width: none; border-left: 0; border-top: 1px solid var(--line); max-height: 45vh; }
