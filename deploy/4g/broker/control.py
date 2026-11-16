@@ -17,6 +17,17 @@ import threading
 import activity
 
 
+def _command(method):
+    """Run a controller method under the command lock: the radio thread (tick) and the API
+    threads both change the world and the automation, and their check-then-act steps must not
+    interleave."""
+    def wrapped(self, *args, **kwargs):
+        with self._cmd:
+            return method(self, *args, **kwargs)
+    wrapped.__name__, wrapped.__doc__ = method.__name__, method.__doc__
+    return wrapped
+
+
 class Busy(Exception):
     """The request conflicts with what is running (e.g. random activity while realtime is on)."""
 
@@ -28,7 +39,8 @@ class Controller:
         self.automation = activity.Automation(self._rng, [u["id"] for u in world.snapshot()["ues"]])
         self._apply = apply_gain
         self._log = log
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()   # gains and overrides
+        self._cmd = threading.RLock()   # commands and ticks, see _command
         self._overrides = {}  # ue -> {cell: gain}
         self._applied = dict(world.gains())
         self._radio_s = 0.0
@@ -40,6 +52,7 @@ class Controller:
             return dict(self._effective())
 
     # ---- commands (API) -----------------------------------------------------------------
+    @_command
     def place(self, ue, x, y):
         self.world.place(ue, x, y)
         self._log(f"air: {ue} placed at ({x:g}, {y:g})")
@@ -47,12 +60,14 @@ class Controller:
         self.automation.on_arrived(ue)  # a jump arrives at once
         self._moved(ue)
 
+    @_command
     def travel(self, ue, x, y, speed_kmh):
         self.world.travel(ue, x, y, speed_kmh)
         self._log(f"air: {ue} travelling to ({x:g}, {y:g}) at {speed_kmh:g} km/h")
         self.automation.on_manual(ue)
         self._moved(ue)
 
+    @_command
     def set_shielded(self, ue, shielded):
         self.world.set_shielded(ue, shielded)
         self._log(f"air: {ue} {'shielded (no radio)' if shielded else 'unshielded'}")
@@ -60,6 +75,7 @@ class Controller:
         self._moved(ue)
 
     # ---- activity -----------------------------------------------------------------------
+    @_command
     def random_activity(self):
         """One decision for every UE that is not shielded or on a manual trip."""
         if self.automation.realtime:
@@ -68,6 +84,7 @@ class Controller:
         self._log(f"air: random activity: {len(plans)} decisions")
         return plans
 
+    @_command
     def set_realtime(self, on):
         """Start or stop realtime activity. Off stops every automated UE where it is."""
         changed = self.automation.set_realtime(on)
@@ -99,6 +116,7 @@ class Controller:
     def _travel_of(self, ue):
         return next(u for u in self.world.snapshot()["ues"] if u["id"] == ue)["travel"]
 
+    @_command
     def stop(self, ue):
         self.world.stop(ue)
         self._log(f"air: {ue} stopped")
@@ -106,6 +124,7 @@ class Controller:
         self.automation.on_arrived(ue)
         self._moved(ue)
 
+    @_command
     def place_cell(self, cell_id, x, y):
         self.world.place_cell(cell_id, x, y)
         self._log(f"air: cell {cell_id} moved to ({x:g}, {y:g})")
@@ -130,6 +149,7 @@ class Controller:
             self._push()
 
     # ---- time ---------------------------------------------------------------------------
+    @_command
     def tick(self, radio_dt_s, wall_dt_s):
         before = {u["id"]: u["travel"] for u in self.world.snapshot()["ues"]}
         self.world.tick(radio_dt_s)
@@ -146,6 +166,7 @@ class Controller:
             self._decide(due)
 
     # ---- state --------------------------------------------------------------------------
+    @_command
     def snapshot(self):
         snap = self.world.snapshot()
         with self._lock:

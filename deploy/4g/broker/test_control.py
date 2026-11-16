@@ -146,3 +146,43 @@ class ControllerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ControllerConcurrencyTest(unittest.TestCase):
+    """The radio thread (tick) and API threads change the automation at the same time."""
+
+    def test_realtime_off_during_a_tick_decision_stops_everyone(self):
+        import threading
+        import activity as act
+
+        entered, release = threading.Event(), threading.Event()
+
+        class BlockingWorld(World):
+            def travel(self, ue, x, y, speed_kmh):
+                if threading.current_thread().name == "tick":
+                    entered.set()
+                    release.wait(2)
+                super().travel(ue, x, y, speed_kmh)
+
+        orig = act.plan
+        act.plan = lambda ue, cells, pathloss, rng: {"ue": ue, "action": "travel", "x": 5.0, "y": 3.0, "speed_kmh": 300.0}
+        try:
+            c = Controller(BlockingWorld(config()), lambda *_: None, log=lambda *_: None, rng=random.Random(1))
+            c.set_shielded("ue2", True)
+            c.set_shielded("ue3", True)
+            c.set_realtime(True)
+            c.stop("ue1")  # arrives at once: pauses, then due on the next tick
+            tick = threading.Thread(target=c.tick, args=(20.0, 1.0), name="tick")
+            tick.start()
+            self.assertTrue(entered.wait(2))
+            off = threading.Thread(target=c.set_realtime, args=(False,))
+            off.start()
+            off.join(0.3)
+            release.set()
+            tick.join(2)
+            off.join(2)
+        finally:
+            act.plan = orig
+        moving = [u["id"] for u in c.snapshot()["ues"] if u["travel"]]
+        self.assertEqual(moving, [], "a UE kept travelling after realtime was switched off")
+        self.assertFalse(c.snapshot()["activity"]["realtime"])
