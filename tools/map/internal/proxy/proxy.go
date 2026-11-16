@@ -186,13 +186,28 @@ func TelcoctlCommand(method, path string, body []byte) string {
 	verb := map[string]string{"suspend": "suspend", "resume": "resume", "plan": "set-plan"}[m[2]]
 	cmd := "./bin/telcoctl " + verb + " " + m[1]
 	if verb == "set-plan" {
-		cmd += " --dl " + b.DL + " --ul " + b.UL
+		cmd += " --dl " + shellWord(b.DL) + " --ul " + shellWord(b.UL)
 	}
-	cmd += " --reason " + b.Reason
+	cmd += " --reason " + shellWord(b.Reason)
 	if b.Note != "" {
-		cmd += ` --note "` + strings.ReplaceAll(b.Note, `"`, `\"`) + `"`
+		cmd += " --note " + singleQuote(b.Note) // free text: always quoted
 	}
 	return cmd
+}
+
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9._:/@%+=-]+$`)
+
+// shellWord leaves a plain word as it is and single-quotes anything else, so a pasted command
+// never splits a value or expands $(...).
+func shellWord(s string) string {
+	if plainWord.MatchString(s) {
+		return s
+	}
+	return singleQuote(s)
+}
+
+func singleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

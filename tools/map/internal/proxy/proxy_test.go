@@ -130,7 +130,7 @@ func TestProvisionerCommandHeader(t *testing.T) {
 	h := handler(t, &got, 200, `{}`)
 	rec := do(h, "POST", "/api/instances/telecom-poc/provisioner/subscribers/999700000000003/suspend",
 		`{"reason":"FRAUD","note":"x"}`)
-	if want := `./bin/telcoctl suspend 999700000000003 --reason FRAUD --note "x"`; rec.Header().Get("X-Command") != want {
+	if want := `./bin/telcoctl suspend 999700000000003 --reason FRAUD --note 'x'`; rec.Header().Get("X-Command") != want {
 		t.Fatalf("X-Command %q, want %q", rec.Header().Get("X-Command"), want)
 	}
 	if got.body != `{"reason":"FRAUD","note":"x"}` || got.auth != "Bearer dev-operator-token" {
@@ -141,12 +141,17 @@ func TestProvisionerCommandHeader(t *testing.T) {
 func TestTelcoctlCommand(t *testing.T) {
 	cases := []struct{ method, path, body, want string }{
 		{"POST", "/subscribers/999700000000003/suspend", `{"reason":"FRAUD","note":"x"}`,
-			`./bin/telcoctl suspend 999700000000003 --reason FRAUD --note "x"`},
+			`./bin/telcoctl suspend 999700000000003 --reason FRAUD --note 'x'`},
 		{"POST", "/subscribers/999700000000003/resume", `{"reason":"CLEARED"}`,
 			`./bin/telcoctl resume 999700000000003 --reason CLEARED`},
 		{"PATCH", "/subscribers/999700000000003/plan", `{"dl":"256K","ul":"128K","reason":"DOWNGRADE"}`,
 			`./bin/telcoctl set-plan 999700000000003 --dl 256K --ul 128K --reason DOWNGRADE`},
 		{"GET", "/subscribers", ``, ``},
+		// Free text is single-quoted: a pasted command must not expand $(...) or split on spaces.
+		{"POST", "/subscribers/999700000000003/suspend", `{"reason":"OTHER","note":"it's $(rm -rf ~) now"}`,
+			`./bin/telcoctl suspend 999700000000003 --reason OTHER --note 'it'\''s $(rm -rf ~) now'`},
+		{"PATCH", "/subscribers/999700000000003/plan", `{"dl":"5 M","ul":"2M","reason":"OTHER"}`,
+			`./bin/telcoctl set-plan 999700000000003 --dl '5 M' --ul 2M --reason OTHER`},
 	}
 	for _, c := range cases {
 		if got := TelcoctlCommand(c.method, c.path, []byte(c.body)); got != c.want {
