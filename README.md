@@ -44,7 +44,8 @@ Parts (deep dives):
 - [`docs/parts/3-handover.md`](docs/parts/3-handover.md) - handover, travel and no coverage
 
 Experiments and findings:
-- [`docs/experiments/RADIO_STABILITY.md`](docs/experiments/RADIO_STABILITY.md) - why UEs sometimes never attached, and what fixed it
+- [`docs/experiments/1-radio-stability.md`](docs/experiments/1-radio-stability.md) - why UEs sometimes never attached, and what fixed it
+
 Scenarios (runnable walkthroughs):
 - [`docs/scenarios/1-suspend-resume-subscriber.md`](docs/scenarios/1-suspend-resume-subscriber.md) - provision, suspend, and resume a subscriber
 - [`docs/scenarios/2-change-subscriber-plan.md`](docs/scenarios/2-change-subscriber-plan.md) - change a subscriber's plan while attached (signaled live, enforced on next attach)

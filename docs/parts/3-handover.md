@@ -2,7 +2,7 @@
 
 *A UE drives from cell A to cell B with a ping running, and the network hands it over without dropping the connection. A UE in a Faraday cage loses service and gets it back by itself.*
 
-This builds on the shared air from [`2-multi-ue-broker.md`](2-multi-ue-broker.md). Read that first if "the air" is new to you. Why the radio needed hardening before any of this could work is in [`../experiments/RADIO_STABILITY.md`](../experiments/RADIO_STABILITY.md).
+This builds on the shared air from [`2-multi-ue-broker.md`](2-multi-ue-broker.md). Read that first if "the air" is new to you. Why the radio needed hardening before any of this could work is in [`../experiments/1-radio-stability.md`](../experiments/1-radio-stability.md).
 
 
 ## 1. What a handover is, and which kind this is

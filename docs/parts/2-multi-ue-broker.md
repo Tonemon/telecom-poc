@@ -23,7 +23,7 @@ The air is one GNU Radio flowgraph (`deploy/4g/broker/broker.py`, service `air`)
 
 A gain is a number between 0 ("out of range") and 1 ("full signal"). Summation is what the RF channel does naturally when several transmitters are active at once. On a fixed topology the gains are simply 1 or 0; with handover, the air computes them from the distance between UE and cell (see part 3), and they change while the stack runs.
 
-All endpoints run in one **lockstep**: every receive is a request that waits for its reply, so all eNBs and UEs advance together, at the speed of the slowest one. No sample is ever dropped or inserted, which matters because there are no timestamps on the wire: position in the stream *is* time (see [`../experiments/RADIO_STABILITY.md`](../experiments/RADIO_STABILITY.md) §2).
+All endpoints run in one **lockstep**: every receive is a request that waits for its reply, so all eNBs and UEs advance together, at the speed of the slowest one. No sample is ever dropped or inserted, which matters because there are no timestamps on the wire: position in the stream *is* time (see [`../experiments/1-radio-stability.md`](../experiments/1-radio-stability.md) §2).
 
 
 ## 3. How the code is split
