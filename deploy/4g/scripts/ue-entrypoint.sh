@@ -3,7 +3,7 @@
 # via tun_srsue in sync with the PDU session's lifecycle.
 #
 # This container's eth0 exists only to carry the simulated ZMQ RF link to
-# the eNB/broker (a real phone has no such side-channel), but it sits on a
+# the eNB/air (a real phone has no such side-channel), but it sits on a
 # normal Docker bridge with real internet access. Left alone, that gives the
 # UE "free" internet unrelated to its cellular attach state, so suspending a
 # subscriber (which tears down the S1-U/GTP bearer) would have no visible
@@ -33,6 +33,12 @@ TUN_DEV="tun_srsue"
 
 iptables -A OUTPUT -o eth0 -d "$EPC_SUBNET" -j ACCEPT
 iptables -A OUTPUT -o eth0 -j DROP
+
+# DNS through the cellular network too. Docker's resolver (127.0.0.11) answers from the host, so
+# `dig`/`curl` name lookups would work even while detached. Use the DNS servers the network
+# hands out instead (smf.yaml); they are only reachable via tun_srsue. srsue does not set them
+# itself, so write them here. (srsue's config uses IPs only, it needs no name resolution.)
+printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf
 
 srsue "$@" &
 SRSUE_PID=$!

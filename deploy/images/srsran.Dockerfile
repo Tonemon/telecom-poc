@@ -37,3 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local /usr/local
 RUN ldconfig
+# Tools to use a UE like a phone from a shell: HTTP (curl, wget), DNS (dig, nslookup),
+# throughput (iperf3), path (traceroute, mtr, tracepath), raw sockets (nc), and tcpdump to watch
+# tun_srsue. Its own layer, so adding a tool never rebuilds srsRAN.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl wget dnsutils iperf3 traceroute mtr-tiny iputils-tracepath netcat-openbsd tcpdump \
+    && rm -rf /var/lib/apt/lists/*
