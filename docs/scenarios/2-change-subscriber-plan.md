@@ -2,7 +2,7 @@
 
 *A realistic (and slightly surprising) telco behavior: changing a customer's plan reaches the network immediately, but the device they're actively using doesn't feel it until it reattaches.*
 
-This runs on the multi-UE demo topology (`docs/parts/2-multi-ue-broker.md`) using `telcoctl`, the operator-side provisioning client (`docs/parts/1-provisioning.md`). It uses `ue3` specifically, which is the only UE on `broker-b`, so forcing a reattach later in this walkthrough can't disturb any other UE the way it would on `ue1`/`ue2`'s shared cell.
+This runs on the multi-UE demo topology (`docs/parts/2-multi-ue-broker.md`) using `telcoctl`, the operator-side provisioning client (`docs/parts/1-provisioning.md`). It uses `ue3` specifically, which is the only UE on cell B (`enb-b`), so forcing a reattach later in this walkthrough can't disturb any other UE on its cell the way it could on `ue1`/`ue2`'s shared cell A.
 
 If you already have the multi-UE stack up from another scenario (e.g. `docs/scenarios/1-suspend-resume-subscriber.md`), you can skip straight to [Check the plan, then change it](#check-the-plan-then-change-it-while-attached).
 
@@ -21,7 +21,7 @@ make 4g-infra
 make telcoctl                # Make the provisioning tool if not yet done
 
 make 4g-demo-subscribers
-make 4g-demo-devices
+make 4g-devices
 ```
 
 ## Check the plan, then change it while attached
@@ -108,6 +108,22 @@ Network  connected · registered
          cell 105474 (enb 412) · TAC 1 · PDN internet · QCI 9 · active
 Last     resume / CLEARED
 ```
+
+## Try it yourself: does the new plan limit the speed?
+
+The plan above (5M/2M) is faster than the virtual radio can go (well under 1 Mbit/s, see `docs/4G.md` §5.3.5), so you would not notice it. Pick a plan below that instead and measure before and after the reattach:
+
+```bash
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # before: the radio's limit
+
+TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl set-plan 999700000000003 --dl 256K --ul 128K --reason DOWNGRADE
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # same session: still the old plan?
+
+# force the reattach with suspend + resume as above, then:
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # new session: 256 kbit/s?
+```
+
+Questions to answer: does the rate drop only after the reattach, as the `telcoctl get` output predicts? If it does not drop at all, which component would have to enforce the AMBR (the eNB per UE, the UPF per session), and does it? Put the plan back afterwards with `--dl 1G --ul 1G --reason UPGRADE`.
 
 ## Run it as an automated assertion
 

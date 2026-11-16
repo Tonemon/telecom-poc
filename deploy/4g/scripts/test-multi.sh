@@ -6,8 +6,8 @@ C="docker compose -f deploy/4g/docker-compose.yml -f deploy/4g/docker-compose.mu
 $C up -d --build mongo provisioner nrf scp hss pcrf sgwc sgwu upf smf mme
 ./deploy/4g/scripts/provision-multi.sh
 $C up -d enb-a enb-b ue1 ue2 ue3
-sleep 5
-$C up -d --no-deps broker-a broker-b   # brokers start LAST
+./deploy/4g/scripts/wait-radio-ready.sh enb-a enb-b ue1 ue2 ue3
+$C up -d --no-deps air   # the shared air starts LAST, once every radio is ready
 
 for u in ue1 ue2 ue3; do ./deploy/4g/scripts/wait-for-attach-svc.sh "$u"; done
 
@@ -17,7 +17,8 @@ for u in ue1 ue2 ue3; do
 done
 wait
 for u in ue1 ue2 ue3; do
-  grep -q "0% packet loss" "/tmp/test-multi-$u.log" || { echo "$u lost packets" >&2; exit 1; }
+  grep -q " 0% packet loss" "/tmp/test-multi-$u.log" || {
+    echo "$u lost packets:" >&2; cat "/tmp/test-multi-$u.log" >&2; exit 1; }
   echo "$u: 0% packet loss"
 done
 

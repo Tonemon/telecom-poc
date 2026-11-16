@@ -1,58 +1,113 @@
 #!/usr/bin/env python3
-"""GNU Radio ZMQ broker for one srsRAN cell: sum UE uplinks into the eNB,
-fan the eNB downlink out to every UE. The pure planner is import-safe without
-GNU Radio so it can be unit-tested; GNU Radio is imported lazily in main()."""
+"""GNU Radio "air" broker: one flowgraph for every srsRAN cell and UE.
+
+Every UE hears every cell and every cell hears every UE, each through its own runtime
+gain (see air.py). All endpoints run in one ZMQ REQ/REP lockstep: no sample is dropped
+or inserted, so stream position stays time. GNU Radio is imported lazily in main() so
+the pure modules stay testable without it.
+"""
 import os
-from dataclasses import dataclass, field
+import threading
+import time
+
+from air import load_config, plan_air
+from api import make_server
+from control import Controller
+from world import World
+
+CONFIG = os.environ.get("AIR_CONFIG", "/conf/air.json")
 
 
-@dataclass
-class BrokerPlan:
-    dl_source: str                                   # REQ source: connect to eNB tx
-    dl_sinks: list = field(default_factory=list)     # REP sinks: bind, one per UE rx
-    ul_sources: list = field(default_factory=list)   # REQ sources: connect to each UE tx
-    ul_sink: str = ""                                # REP sink: bind, eNB rx connects here
+TICK_S = 0.2  # wall-clock period of the world tick
 
 
-def plan_broker(enb_dl, enb_ul, ues):
-    return BrokerPlan(
-        dl_source=enb_dl,
-        dl_sinks=[dl for (dl, _ul) in ues],
-        ul_sources=[ul for (_dl, ul) in ues],
-        ul_sink=enb_ul,
-    )
+class Air:
+    def __init__(self, cfg, gains):
+        """gains: (ue, cell) -> starting gain for every link."""
+        from gnuradio import gr, blocks, zeromq  # lazy: keeps the planner testable
+
+        cx = gr.sizeof_gr_complex
+        plan = plan_air(cfg)
+        self._lock = threading.Lock()
+        self.tb = gr.top_block()
+        self.gain_blocks = {}
+
+        def gain(ue, cell):
+            g = blocks.multiply_const_cc(gains[(ue, cell)])
+            self.gain_blocks[(ue, cell)] = g
+            return g
+
+        # Same socket parameters as the per-cell brokers had: 100 ms timeout, no tags, no HWM.
+        cell_tx = {c.id: zeromq.req_source(cx, 1, c.dl, 100, False, -1) for c in cfg.cells}
+        ue_tx = {u.id: zeromq.req_source(cx, 1, u.ul, 100, False, -1) for u in cfg.ues}
+
+        # Downlink: each UE's rx = sum over cells of gain * cell tx.
+        for u in cfg.ues:
+            add = blocks.add_cc(1)
+            for i, link in enumerate(plan.dl[u.id]):
+                g = gain(link.ue, link.cell)
+                self.tb.connect(cell_tx[link.cell], g, (add, i))
+            self.tb.connect(add, zeromq.rep_sink(cx, 1, u.dl, 100, False, -1))
+        first = plan.dl[cfg.ues[0].id][0]
+        self._clock_block = self.gain_blocks[(first.ue, first.cell)]  # radio clock, see radio_samples()
+
+        # Uplink: each cell's rx = sum over UEs of gain * UE tx. The UL gain blocks are
+        # separate from the DL ones but share the same (ue, cell) value via set_gain().
+        self.ul_gain_blocks = {}
+        for c in cfg.cells:
+            add = blocks.add_cc(1)
+            for i, link in enumerate(plan.ul[c.id]):
+                g = blocks.multiply_const_cc(gains[(link.ue, link.cell)])
+                self.ul_gain_blocks[(link.ue, link.cell)] = g
+                self.tb.connect(ue_tx[link.ue], g, (add, i))
+            self.tb.connect(add, zeromq.rep_sink(cx, 1, c.ul, 100, False, -1))
+
+    def set_gain(self, ue, cell, value):
+        """Set the radio link between one UE and one cell, in both directions."""
+        key = (ue, cell)
+        if key not in self.gain_blocks:
+            raise KeyError(f"unknown link {ue} <-> {cell}")
+        with self._lock:
+            self.gain_blocks[key].set_k(complex(value))
+            self.ul_gain_blocks[key].set_k(complex(value))
+
+    def radio_samples(self):
+        """Samples that have passed through the air so far (on the first link). Divided by the
+        sample rate this is radio time, which runs slower than wall time on a busy host."""
+        return self._clock_block.nitems_written(0)
 
 
-def parse_ues(spec):
-    """'2111,10.0.0.61:2001 2112,10.0.0.62:2001' ->
-       [('tcp://*:2111','tcp://10.0.0.61:2001'), ...]"""
-    out = []
-    for entry in spec.split():
-        dl_port, ul = entry.split(",", 1)
-        out.append((f"tcp://*:{dl_port}", f"tcp://{ul}"))
-    return out
+def log(msg):
+    print(msg, flush=True)
+
+
+def run_ticks(air, ctl, srate):
+    """Advance the world by the radio time that passed, every TICK_S of wall time."""
+    last_n, last_t = air.radio_samples(), time.monotonic()
+    while True:
+        time.sleep(TICK_S)
+        n, t = air.radio_samples(), time.monotonic()
+        try:
+            ctl.tick((n - last_n) / srate, t - last_t)
+        except Exception as e:  # never let a bad tick kill the clock
+            log(f"air: tick failed: {e!r}")
+        last_n, last_t = n, t
 
 
 def main():
-    from gnuradio import gr, blocks, zeromq  # lazy: keeps planner testable
-    srate = float(os.environ["SRATE"])
-    plan = plan_broker(os.environ["ENB_DL"], os.environ["ENB_UL"],
-                       parse_ues(os.environ["UES"]))
-    tb = gr.top_block()
-    cx = gr.sizeof_gr_complex
-    # Downlink: one REQ source from the eNB, fanned out to N REP sinks (UEs).
-    dl_src = zeromq.req_source(cx, 1, plan.dl_source, 100, False, -1)
-    for addr in plan.dl_sinks:
-        tb.connect(dl_src, zeromq.rep_sink(cx, 1, addr, 100, False, -1))
-    # Uplink: N REQ sources (UEs) summed, one REP sink to the eNB.
-    adder = blocks.add_cc(1)
-    for i, addr in enumerate(plan.ul_sources):
-        tb.connect(zeromq.req_source(cx, 1, addr, 100, False, -1), (adder, i))
-    tb.connect(adder, zeromq.rep_sink(cx, 1, plan.ul_sink, 100, False, -1))
-    print(f"broker: DL {plan.dl_source} -> {plan.dl_sinks}; "
-          f"UL {plan.ul_sources} -> {plan.ul_sink}", flush=True)
-    tb.start()
-    tb.wait()
+    with open(CONFIG) as f:
+        cfg = load_config(f.read())
+    holder = {}
+    ctl = Controller(World(cfg), lambda ue, cell, g: holder["air"].set_gain(ue, cell, g), log=log)
+    air = holder["air"] = Air(cfg, ctl.initial_gains())
+    links = ", ".join(f"{u}<->{c}={g:.3g}" for (u, c), g in sorted(ctl.initial_gains().items()))
+    log(f"air: {len(cfg.cells)} cells, {len(cfg.ues)} UEs; gains {links}")
+    api = make_server(cfg.api_port, os.environ.get("AIR_TOKEN", "dev-air-token"), ctl, ctl.override_gain)
+    threading.Thread(target=api.serve_forever, daemon=True).start()
+    log(f"air: control API on port {cfg.api_port}")
+    air.tb.start()
+    threading.Thread(target=run_ticks, args=(air, ctl, cfg.srate), daemon=True).start()
+    air.tb.wait()
 
 
 if __name__ == "__main__":
