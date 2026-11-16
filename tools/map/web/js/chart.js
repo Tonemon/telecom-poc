@@ -1,9 +1,11 @@
 // Signal chart for one UE: each cell's signal (dB) over the last minutes, the A3 band above the
 // serving cell's line (what a neighbour must beat), and a marker at every handover.
 
+import { pinLabel } from "./logic.js";
 import { db } from "./pathloss.js";
 import { cellColor, model } from "./state.js";
 
+const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 const W = 340, H = 150, PAD = { l: 34, r: 8, t: 8, b: 20 }, MIN_DB = -40, SPAN_S = 300;
 
 export function signalChart(ueId, marginDb) {
@@ -33,7 +35,7 @@ export function signalChart(ueId, marginDb) {
   }
   for (const p of model.pins.filter(p => p.ue === ueId && now - p.at < SPAN_S * 1000)) {
     out += `<line x1="${x(p.at)}" x2="${x(p.at)}" y1="${PAD.t}" y2="${H - PAD.b}" class="hoMark"/>` +
-      `<text x="${x(p.at) + 3}" y="${PAD.t + 10}" class="tick">${p.from}→${p.to}</text>`;
+      `<text x="${x(p.at) + 3}" y="${PAD.t + 10}" class="tick">${esc(pinLabel({ from: p.from, to: p.to }))}</text>`;
   }
   return out + `</svg><div class="muted small">Signal per cell (dB vs full signal). Shaded: the ${marginDb} dB a neighbour must beat the serving cell by.</div>`;
 }

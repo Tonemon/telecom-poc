@@ -63,7 +63,8 @@ export function stripSvg(ue) {
 }
 
 export function init() {
-  setInterval(poll, 1000);
+  const loop = async () => { await poll(); setTimeout(loop, 1000); }; // never two polls at once
+  setTimeout(loop, 1000);
   page.onRedraw.push(() => {
     const el = document.getElementById("ping-strip");
     if (el && page.sel.kind === "ue") el.innerHTML = stripSvg(page.sel.id);

@@ -90,7 +90,7 @@ async function run(el) {
         break;
       case "pcap-stop":
         r = await api.send("agent", "DELETE", `/pcaps/${encodeURIComponent(svc)}`);
-        result(r.ok ? `Saved ${esc(r.json.file)}: download it below and open it in Wireshark.` : errText(r), !r.ok);
+        result(r.ok ? `Saved ${esc(r.json.file)}: download it below and open it in Wireshark.${r.json.note ? ` <span class="muted">(${esc(r.json.note)})</span>` : ""}` : errText(r), !r.ok);
         await refreshPcaps();
         break;
       case "jump":
@@ -154,5 +154,6 @@ export function init() {
     if (ev.target.matches("input[data-act='ping']")) run(ev.target);
   });
   page.onSelect.push(() => refreshPcaps());
-  setInterval(refreshPcaps, 5000);
+  const loop = async () => { await refreshPcaps(); setTimeout(loop, 5000); };
+  setTimeout(loop, 5000);
 }

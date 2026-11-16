@@ -3,38 +3,21 @@
 // travel, shielding or automation.
 
 import * as api from "./api.js";
+import { MAP_VERSION, validateMap } from "./logic.js";
 import { page, redraw, setSeed } from "./main.js";
 import { showMessage } from "./move.js";
 import { model, refreshWorld } from "./state.js";
 
-export const VERSION = 1;
 const PRESETS = [["highway", "Highway"], ["tunnel", "Tunnel"], ["crowded-cell", "Crowded cell"]];
 const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 
 export function snapshot(world, seed) {
   return {
-    version: VERSION,
+    version: MAP_VERSION,
     terrain: { seed },
     cells: world.cells.map(c => ({ id: c.id, x: c.x, y: c.y })),
     ues: world.ues.map(u => ({ id: u.id, x: +u.x.toFixed(3), y: +u.y.toFixed(3) })),
   };
-}
-
-// validate checks a parsed map file against the running world before anything moves.
-export function validate(file, world) {
-  const errors = [];
-  if (!file || typeof file !== "object") return { ok: false, errors: ["not a map file"] };
-  if (file.version !== VERSION) errors.push(`unsupported version ${JSON.stringify(file.version)} (this map reads version ${VERSION})`);
-  const num = v => typeof v === "number" && Number.isFinite(v);
-  for (const [kind, list, known] of [["cell", file.cells, world.cells], ["device", file.ues, world.ues]]) {
-    if (!Array.isArray(list)) { errors.push(`${kind}s missing`); continue; }
-    for (const item of list) {
-      if (!known.some(k => k.id === item?.id)) errors.push(`unknown ${kind} ${JSON.stringify(item?.id)}`);
-      else if (!num(item.x) || !num(item.y)) errors.push(`${kind} ${item.id}: x and y must be numbers`);
-    }
-  }
-  if (file.terrain && file.terrain.seed !== undefined && !num(file.terrain.seed)) errors.push("terrain seed must be a number");
-  return { ok: errors.length === 0, errors };
 }
 
 function download() {
@@ -49,7 +32,7 @@ function download() {
 let pending = null;
 
 function propose(file, name) {
-  const v = validate(file, model.world);
+  const v = validateMap(file, model.world);
   if (!v.ok) {
     showMessage(`<span class="error">Cannot use ${esc(name)}: ${v.errors.map(esc).join("; ")}. Nothing was moved.</span>`);
     return;
@@ -76,7 +59,10 @@ async function apply() {
     if (!r.ok) failed.push(`${u.id}: ${r.json?.error || r.status}`);
   }
   if (file.terrain?.seed !== undefined) setSeed(file.terrain.seed);
-  if (failed.length) showMessage(`<span class="error">${failed.map(esc).join("; ")}</span>`);
+  const total = file.cells.length + file.ues.length;
+  if (failed.length) {
+    showMessage(`<span class="error">Only partly applied: ${total - failed.length} of ${total} moved. Failed: ${failed.map(esc).join("; ")}</span>`);
+  }
   await refreshWorld();
   redraw();
 }

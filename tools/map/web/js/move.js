@@ -140,7 +140,7 @@ export function init() {
   const svg = document.getElementById("overlay");
   svg.addEventListener("mousedown", ev => {
     const g = ev.target.closest("[data-cell]");
-    if (!g || pick) return;
+    if (!g || pick || drag?.confirming) return; // one tower move at a time
     const [x, y] = worldAt(ev);
     drag = { cell: g.dataset.cell, x, y, startX: ev.clientX, startY: ev.clientY, moved: false };
     ev.preventDefault();

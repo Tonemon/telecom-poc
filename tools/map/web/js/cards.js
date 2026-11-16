@@ -27,7 +27,7 @@ function towerInfo(id) {
   const served = model.world.ues.filter(u => ueStatus(u).serving === id).map(u => u.id);
   const neigh = (t.neighbours || []).map(n => {
     const other = model.inventory.cells.find(c => c.eci === n.eci);
-    return `${other ? "cell " + other.id : "?"} (ECI ${hex(n.eci)}, PCI ${n.pci})`;
+    return `${other ? "cell " + esc(other.id) : "?"} (ECI ${hex(n.eci)}, PCI ${esc(n.pci)})`;
   }).join(", ");
   const comp = model.components[t.service];
   return `<h3><span class="swatch" style="background:${st.down ? "#9ca3af" : cellColor(id)}"></span> ${esc(cell.name || id)}
@@ -45,10 +45,10 @@ function towerInfo(id) {
     ${row("Cell ID", `${hex(t.cell_id)} · ${term("eNB ID")} ${hex(t.enb_id)} (${esc(t.enb_id)}) · ${term("ECI")} ${hex(t.eci)}`)}
     ${row(term("TAC"), esc(t.tac))}
     ${row("Neighbours", neigh || "none")}
-    ${row("Handover", t.a3 ? `${term("A3")} offset ${t.a3.offset_db} dB + ${term("hysteresis")} ${t.a3.hysteresis_db} dB, ${term("time to trigger")} ${t.a3.time_to_trigger_ms} ms` : "–")}
-    ${row("Serving now", served.length ? served.join(", ") : "nobody")}
+    ${row("Handover", t.a3 ? `${term("A3")} offset ${esc(t.a3.offset_db)} dB + ${term("hysteresis")} ${esc(t.a3.hysteresis_db)} dB, ${term("time to trigger")} ${esc(t.a3.time_to_trigger_ms)} ms` : "–")}
+    ${row("Serving now", served.length ? served.map(esc).join(", ") : "nobody")}
     ${row("Position", `(${cell.x.toFixed(1)}, ${cell.y.toFixed(1)}) km · ${label(cell.x, cell.y)}`)}
-    ${row("Coverage", `${model.world.pathloss.edge_km} km radius (no signal beyond)`)}
+    ${row("Coverage", `${esc(model.world.pathloss.edge_km)} km radius (no signal beyond)`)}
     </table>`;
 }
 
@@ -74,7 +74,7 @@ function ueInfo(id) {
     ${row("IP", sub?.network?.ip ? `${esc(sub.network.ip)} <span class="muted">(from the SMF)</span>` : "–")}
     ${row(term("roaming", "Roaming"), "no")}
     ${row("Signal", model.world.cells.map(c => `${esc(c.id)}: ${fmtDb(ue.gains[c.id])}`).join(" · "))}
-    ${row("Position", `(${ue.x.toFixed(1)}, ${ue.y.toFixed(1)}) km · ${label(ue.x, ue.y)} ${travel}`)}
+    ${row("Position", `(${ue.x.toFixed(1)}, ${ue.y.toFixed(1)}) km · ${label(ue.x, ue.y)} ${esc(travel)}`)}
     ${row("Moves", esc(auto))}
     </table>
     <div id="card-chart">${signalChart(id, margin())}</div>`;

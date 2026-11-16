@@ -2,6 +2,7 @@
 // lines, pins) as SVG on top.
 
 import { EXTENT, rowLabels } from "./grid.js";
+import { pinLabel } from "./logic.js";
 import { db, gainsAt } from "./pathloss.js";
 import { cellColor, model, towerStatus, ueStatus } from "./state.js";
 
@@ -151,7 +152,7 @@ function signalLinesSvg(v, world) {
 function pinsSvg(v) {
   return model.pins.map(p => {
     const [px, py] = v.toScreen(p.x, p.y);
-    const text = `${p.from}→${p.to}${p.lost != null ? `, ${p.lost} lost` : ""}`;
+    const text = pinLabel(p);
     return `<g class="pin" transform="translate(${px},${py})">
       <line x1="0" y1="0" x2="0" y2="-22" stroke="#111827" stroke-width="1.5"/>
       <path d="M0,-22 L16,-17 L0,-12 Z" fill="${cellColor(p.to)}" stroke="#111827"/>

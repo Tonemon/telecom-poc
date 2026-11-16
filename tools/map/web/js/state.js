@@ -113,9 +113,11 @@ export async function start(onChange) {
     model.components = Object.fromEntries(list.map(c => [c.service, c]));
   }, onChange);
   await Promise.all([world(), subs(), comps()]);
-  setInterval(world, 1000);
-  setInterval(subs, 2000);
-  setInterval(comps, 5000);
+  // Each poll waits for the previous one to finish, so a slow API never gets a pile of requests.
+  const every = (fn, ms) => { const loop = async () => { await fn(); setTimeout(loop, ms); }; setTimeout(loop, ms); };
+  every(world, 1000);
+  every(subs, 2000);
+  every(comps, 5000);
 }
 
 export async function refreshWorld() {
