@@ -1,0 +1,6 @@
+{"name": "telecom-poc", "operator": {"name": "Telecom PoC", "plmn": "999-70"},
+ "cells": [{"id": "A", "service": "enb-a", "enb_conf": "enb-a.conf", "rr_conf": "rr-a.conf", "generation": "4G"},
+           {"id": "B", "service": "enb-b", "enb_conf": "enb-b.conf", "rr_conf": "rr-b.conf", "generation": "4G"}],
+ "devices": [{"id": "ue1", "service": "ue1", "conf": "ue1.conf", "model": "Apple iPhone 6", "generations": ["4G"]},
+             {"id": "ue2", "service": "ue2", "conf": "ue2.conf", "model": "Google Pixel 8", "generations": ["4G"]},
+             {"id": "ue3", "service": "ue3", "conf": "ue3.conf", "model": "Samsung Galaxy S4", "generations": ["4G"]}]}

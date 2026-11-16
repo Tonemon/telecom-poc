@@ -29,6 +29,7 @@ submodules: ## Initialise and update git submodules
 	@echo "==> [1/4] Building the broker image + EPC core + provisioner..."
 	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	$(COMPOSE_MULTI) up -d --build --no-deps agent
 	@echo "==> [2/4] Provisioning the 3 fixed subscribers..."
 	./deploy/4g/scripts/provision-multi.sh
 	@echo "==> [3/4] Starting eNBs (enb-a, enb-b) and UEs (ue1, ue2, ue3)..."
@@ -67,6 +68,7 @@ submodules: ## Initialise and update git submodules
 	@echo "          $(CORE_4G)"
 	$(COMPOSE_MULTI) build air
 	$(COMPOSE_MULTI) up -d --build $(CORE_4G)
+	$(COMPOSE_MULTI) up -d --build --no-deps agent
 	@echo "==> [2/3] Starting the eNodeBs (enb-a, enb-b) — they S1-Setup to the MME..."
 	$(COMPOSE_MULTI) up -d enb-a enb-b
 	@echo ""
