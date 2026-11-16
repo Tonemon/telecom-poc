@@ -55,9 +55,9 @@ async function sendTravel() {
   const speed = Number(document.getElementById("speed").value);
   const ue = pick.ue;
   const r = await api.send("air", "POST", `/ues/${encodeURIComponent(ue)}/travel`, { x: +pick.x.toFixed(2), y: +pick.y.toFixed(2), speed_kmh: speed });
-  pick = { ue };
+  pick = null; // the trip is sent: later map clicks are ordinary clicks again
   if (!r.ok) showMessage(`<span class="error">${esc(r.json?.error || r.status)}</span>`);
-  else { remember(`travel:${pick?.ue || ""}`, r.command); bottom().innerHTML = ""; }
+  else { remember(`travel:${ue}`, r.command); bottom().innerHTML = ""; }
   await refreshWorld();
   redraw();
 }
