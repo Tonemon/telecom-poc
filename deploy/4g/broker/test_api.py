@@ -203,6 +203,36 @@ class WorldApiTest(ApiTest):
         body = self.request("PUT", "/ues/ue2/shielded", {"shielded": True})[1]
         self.assertEqual(body["command"], "make 4g-travel UE=ue2 SHIELD=on")
 
+    def test_post_random_activity(self):
+        status, body = self.request("POST", "/activity/random")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["plans"]), 3)
+        self.assertEqual(body["command"], "curl -X POST -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "http://127.0.0.1:8090/activity/random")
+
+    def test_random_activity_409_while_realtime(self):
+        self.request("PUT", "/activity/realtime", {"on": True})
+        status, body = self.request("POST", "/activity/random")
+        self.assertEqual(status, 409)
+        self.assertIn("realtime", body["error"])
+
+    def test_put_realtime_on_off(self):
+        status, body = self.request("PUT", "/activity/realtime", {"on": True})
+        self.assertEqual((status, body["realtime"]), (200, True))
+        self.assertEqual(body["command"], "curl -X PUT -H \"Authorization: Bearer $AIR_TOKEN\" "
+                         "-d '{\"on\": true}' http://127.0.0.1:8090/activity/realtime")
+        self.assertTrue(self.request("GET", "/world")[1]["activity"]["realtime"])
+        status, body = self.request("PUT", "/activity/realtime", {"on": False})
+        self.assertEqual((status, body["realtime"]), (200, False))
+        self.assertIsInstance(body["stopped"], list)
+
+    def test_put_realtime_bad_body_400(self):
+        for bad in ({"on": "yes"}, {}, {"on": 1}):
+            self.assertEqual(self.request("PUT", "/activity/realtime", bad)[0], 400, bad)
+
+    def test_world_reports_automation_state(self):
+        self.assertEqual(self.ue("ue1")["automation"], "manual")
+
     def test_world_has_pathloss(self):
         self.assertEqual(self.request("GET", "/world")[1]["pathloss"]["edge_km"], 7.0)
 

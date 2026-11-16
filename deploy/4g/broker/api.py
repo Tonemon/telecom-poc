@@ -10,6 +10,9 @@
   POST /ues/{id}/stop         cancel a travel where the UE is now
   PUT  /cells/{id}/position   {"x": 6, "y": 0}: move a cell; ?dry_run=1 only reports, per UE,
                               the gains before/after and whether it gains or loses coverage
+  POST /activity/random       one decision per UE (stay, or a random trip); 409 while realtime
+  PUT  /activity/realtime     {"on": true}: keep deciding after each arrival; off stops every
+                              automated UE where it is
 
 Action responses carry "command": the same action as a terminal command.
 
@@ -22,6 +25,8 @@ import math
 import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from control import Busy
 
 UE_PATH = re.compile(r"^/ues/([^/]+)/(gains|travel|position|shielded|stop)$")
 CELL_PATH = re.compile(r"^/cells/([^/]+)/position$")
@@ -113,6 +118,21 @@ def make_server(port, token, world, set_gain):
                 if method == "GET" and url.path == "/world":
                     return self._send(200, snap)
                 raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if url.path == "/activity/random" and method == "POST":
+                    try:
+                        plans = world.random_activity()
+                    except Busy as e:
+                        raise ApiError(409, str(e))
+                    return self._send(200, {"plans": plans,
+                                            "command": curl_command("POST", "/activity/random")})
+                if url.path == "/activity/realtime" and method == "PUT":
+                    body = _json_object(raw, '{"on": true}')
+                    if not isinstance(body.get("on"), bool):
+                        raise ApiError(400, "on must be true or false")
+                    stopped = world.set_realtime(body["on"])
+                    return self._send(200, {"realtime": body["on"], "stopped": stopped,
+                                            "command": curl_command("PUT", "/activity/realtime",
+                                                                    {"on": body["on"]})})
                 m = CELL_PATH.match(url.path)
                 if m and method == "PUT":
                     return self._cell(m.group(1), url.query, raw, snap)

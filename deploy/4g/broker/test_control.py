@@ -1,6 +1,7 @@
+import random
 import unittest
 
-from control import Controller
+from control import Busy, Controller
 from test_world import config
 from world import World
 
@@ -9,7 +10,7 @@ class ControllerTest(unittest.TestCase):
     def setUp(self):
         self.applied = []
         self.c = Controller(World(config()), lambda ue, cell, g: self.applied.append((ue, cell, g)),
-                            log=lambda *_: None)
+                            log=lambda *_: None, rng=random.Random(3))
 
     def gains_of(self, ue):
         return next(u for u in self.c.snapshot()["ues"] if u["id"] == ue)["gains"]
@@ -89,6 +90,58 @@ class ControllerTest(unittest.TestCase):
         self.c.stop("ue2")
         self.assertEqual(self.applied, [])
         self.assertIsNone(next(u for u in self.c.snapshot()["ues"] if u["id"] == "ue2")["travel"])
+
+
+    def ue(self, ue_id):
+        return next(u for u in self.c.snapshot()["ues"] if u["id"] == ue_id)
+
+    def test_random_activity_skips_shielded_and_manual(self):
+        self.c.set_shielded("ue3", True)
+        self.c.travel("ue2", 8, 0, 1000)
+        plans = self.c.random_activity()
+        self.assertEqual([p["ue"] for p in plans], ["ue1"])
+        self.assertEqual(self.ue("ue2")["travel"]["x"], 8.0)  # manual trip untouched
+
+    def test_random_activity_busy_while_realtime(self):
+        self.c.set_realtime(True)
+        with self.assertRaises(Busy):
+            self.c.random_activity()
+
+    def test_realtime_off_stops_automated_ues_where_they_are(self):
+        self.c.set_realtime(True)
+        self.c.tick(1.0, 10)
+        moving = [u["id"] for u in self.c.snapshot()["ues"] if u["travel"]]
+        self.assertTrue(moving)  # seed 3: at least one UE got a trip
+        where = {u: (self.ue(u)["x"], self.ue(u)["y"]) for u in moving}
+        stopped = self.c.set_realtime(False)
+        self.assertEqual(sorted(stopped), sorted(moving))
+        for u in moving:
+            self.assertIsNone(self.ue(u)["travel"])
+            self.assertEqual((self.ue(u)["x"], self.ue(u)["y"]), where[u])
+
+    def test_realtime_off_keeps_manual_trip_going(self):
+        self.c.set_realtime(True)
+        self.c.travel("ue2", 8, 0, 1000)
+        self.assertNotIn("ue2", self.c.set_realtime(False))
+        self.assertEqual(self.ue("ue2")["travel"]["x"], 8.0)
+
+    def test_tick_applies_new_plans_after_pause(self):
+        self.c.set_shielded("ue2", True)
+        self.c.set_shielded("ue3", True)
+        self.c.set_realtime(True)
+        for _ in range(50):          # 50 radio-s: ue1 decides several times (pauses are <= 10 s)
+            self.c.tick(1.0, 10)
+            if self.ue("ue1")["travel"]:
+                break
+        self.assertIsNotNone(self.ue("ue1")["travel"])
+
+    def test_snapshot_reports_automation_and_activity(self):
+        self.c.set_shielded("ue3", True)
+        self.c.travel("ue2", 8, 0, 1000)
+        snap = self.c.snapshot()
+        self.assertEqual(snap["activity"], {"realtime": False})
+        self.assertEqual({u["id"]: u["automation"] for u in snap["ues"]},
+                         {"ue1": "manual", "ue2": "travelling", "ue3": "shielded"})
 
 
 if __name__ == "__main__":
