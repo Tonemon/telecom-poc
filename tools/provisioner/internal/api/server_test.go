@@ -78,3 +78,32 @@ func TestMutating_RequiresReason(t *testing.T) {
 		t.Fatalf("missing reason: got %d want 400", resp.StatusCode)
 	}
 }
+
+// The subscriber's IP comes from the core (the SMF's session), next to the MME's live state.
+func TestListAndGet_IncludeSessionIPFromSMF(t *testing.T) {
+	mme := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"items": [{"supi": "999700000000001", "cm_state": "connected", "mm_state": "registered",
+			"enb": {"enb_id": 411, "cell_id": 105217}, "pdn": [{"apn": "internet", "qci": 9}]}]}`))
+	}))
+	defer mme.Close()
+	smf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"items": [{"supi": "imsi-999700000000001", "pdu": [{"apn": "internet", "ipv4": "10.45.0.4"}]}]}`))
+	}))
+	defer smf.Close()
+	fixedKey := func() []byte { return bytes.Repeat([]byte{0xAB}, 16) }
+	srv := NewServer(store.NewFake(), testToken, "op", fixedKey, network.NewMMEClient(mme.URL)).WithSMF(network.NewSMFClient(smf.URL))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	do(t, http.MethodPost, ts.URL+"/subscribers/issue", testToken, IssueRequest{Reason: "NEW_ACTIVATION"})
+
+	var list []SubscriberView
+	json.NewDecoder(do(t, http.MethodGet, ts.URL+"/subscribers", testToken, nil).Body).Decode(&list)
+	if len(list) != 1 || list[0].Network == nil || list[0].Network.IP != "10.45.0.4" {
+		t.Fatalf("list: %+v", list)
+	}
+	var one SubscriberView
+	json.NewDecoder(do(t, http.MethodGet, ts.URL+"/subscribers/999700000000001", testToken, nil).Body).Decode(&one)
+	if one.Network == nil || one.Network.IP != "10.45.0.4" {
+		t.Fatalf("get: %+v", one)
+	}
+}

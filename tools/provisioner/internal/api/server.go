@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,7 @@ type Server struct {
 	actor  string
 	keygen func() []byte
 	mme    *network.MMEClient
+	smf    *network.SMFClient
 }
 
 func NewServer(st store.Store, token, actor string, keygen func() []byte, mme *network.MMEClient) *Server {
@@ -191,7 +193,20 @@ func bpsStr(bps int) string {
 	return strconv.Itoa(bps) + "bps"
 }
 
-func view(r store.Record, live map[string]network.Info) SubscriberView {
+// WithSMF adds the SMF as the source of each live session's IP address.
+func (s *Server) WithSMF(smf *network.SMFClient) *Server {
+	s.smf = smf
+	return s
+}
+
+// liveState is the core's view of every subscriber: the MME's state plus the SMF's session IPs.
+func (s *Server) liveState(ctx context.Context) (map[string]network.Info, map[string]string) {
+	live, _ := s.mme.FetchAll(ctx)
+	ips, _ := s.smf.FetchIPs(ctx)
+	return live, ips
+}
+
+func view(r store.Record, live map[string]network.Info, ips map[string]string) SubscriberView {
 	status := "active"
 	if r.Barred {
 		status = "suspended"
@@ -206,6 +221,7 @@ func view(r store.Record, live map[string]network.Info) SubscriberView {
 			ENBID: info.ENBID, CellID: info.CellID, TAC: info.TAC,
 			APN: info.APN, QCI: info.QCI, BearerCount: info.BearerCount, PDUState: info.PDUState,
 			DL: bpsStr(info.AMBRDownlinkBps), UL: bpsStr(info.AMBRUplinkBps),
+			IP: ips[r.IMSI],
 		}
 	}
 	return v
@@ -217,10 +233,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	live, _ := s.mme.FetchAll(r.Context())
+	live, ips := s.liveState(r.Context())
 	out := make([]SubscriberView, 0, len(recs))
 	for _, rec := range recs {
-		out = append(out, view(rec, live))
+		out = append(out, view(rec, live, ips))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -235,8 +251,8 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	live, _ := s.mme.FetchAll(r.Context())
-	writeJSON(w, http.StatusOK, view(*rec, live))
+	live, ips := s.liveState(r.Context())
+	writeJSON(w, http.StatusOK, view(*rec, live, ips))
 }
 
 func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {

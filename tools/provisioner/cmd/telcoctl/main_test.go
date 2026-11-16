@@ -2,7 +2,10 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/telecom-poc/provisioner/internal/api"
 )
 
 // A single-character value (e.g. "--count 2") must be consumed as the flag's
@@ -45,5 +48,14 @@ func TestPopFlag_NextFlagNotConsumed(t *testing.T) {
 	}
 	if want := []string{"--reason", "BATCH"}; !reflect.DeepEqual(rest, want) {
 		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+}
+
+func TestNetworkLinesShowSessionIP(t *testing.T) {
+	v := api.SubscriberView{IMSI: "999700000000001", DL: "1G", UL: "1G", Network: &api.NetworkInfo{
+		CMState: "connected", MMState: "registered", ENBID: 411, CellID: 105217, APN: "internet", IP: "10.45.0.4"}}
+	got := strings.Join(networkLines(v), "\n")
+	if !strings.Contains(got, "IP 10.45.0.4") {
+		t.Fatalf("network lines lack the session IP:\n%s", got)
 	}
 }

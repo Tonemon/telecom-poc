@@ -236,6 +236,9 @@ func networkLines(v api.SubscriberView) []string {
 		}
 		detail = append(detail, pdn)
 	}
+	if n.IP != "" {
+		detail = append(detail, "IP "+n.IP)
+	}
 	if planPending(v) {
 		// The MME's live AMBR still differs from the provisioned plan --
 		// signaled already, but only takes effect on the UE's next attach.

@@ -4,6 +4,10 @@ global:
   max:
     ue: 1024
 smf:
+  metrics:            # /pdu-info: each session's IP (read by the provisioner), and Prometheus metrics
+    server:
+      - address: 172.22.0.4
+        port: 9090
   sbi:
     server:
       - address: 172.22.0.4

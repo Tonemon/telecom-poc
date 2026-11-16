@@ -45,7 +45,8 @@ func main() {
 		return b
 	}
 	mme := network.NewMMEClient(mmeURL)
-	srv := api.NewServer(st, token, actor, keygen, mme)
+	smf := network.NewSMFClient(env("PROVISIONER_SMF_METRICS_URL", "http://172.22.0.4:9090"))
+	srv := api.NewServer(st, token, actor, keygen, mme).WithSMF(smf)
 	log.Printf("provisioner listening on %s (mongo %s, mme %s)", addr, uri, mmeURL)
 	log.Fatal(http.ListenAndServe(addr, srv.Handler()))
 }
