@@ -82,6 +82,16 @@ PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
 3 packets transmitted, 0 received, 100% packet loss, time 2045ms
 ```
 
+Not even a name lookup works, because DNS goes through the cellular network too (`docs/4G.md` §5.3.5):
+```bash
+docker exec -it telecom-poc-4g-ue3-1 dig +tries=1 example.com
+;; communications error to 8.8.8.8#53: timed out
+;; communications error to 1.1.1.1#53: timed out
+;; no servers could be reached
+```
+
+> **Try it yourself:** before suspending, start `docker exec -it telecom-poc-4g-ue3-1 curl -o /dev/null --limit-rate 20k https://proof.ovh.net/files/1Gb.dat` in a second shell. What happens to a download that is running at the moment of the suspend, and does it continue by itself after the resume (the UE gets a new IP address, see below)?
+
 ## Resume it
 
 Resuming the subscription is all it takes and the UE reattaches on its own, typically within a few seconds up to about a minute. No container restart is needed:

@@ -109,6 +109,22 @@ Network  connected · registered
 Last     resume / CLEARED
 ```
 
+## Try it yourself: does the new plan limit the speed?
+
+The plan above (5M/2M) is faster than the virtual radio can go (well under 1 Mbit/s, see `docs/4G.md` §5.3.5), so you would not notice it. Pick a plan below that instead and measure before and after the reattach:
+
+```bash
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # before: the radio's limit
+
+TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl set-plan 999700000000003 --dl 256K --ul 128K --reason DOWNGRADE
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # same session: still the old plan?
+
+# force the reattach with suspend + resume as above, then:
+docker exec -it telecom-poc-4g-ue3-1 iperf3 -c iperf.he.net -R -t 10     # new session: 256 kbit/s?
+```
+
+Questions to answer: does the rate drop only after the reattach, as the `telcoctl get` output predicts? If it does not drop at all, which component would have to enforce the AMBR (the eNB per UE, the UPF per session), and does it? Put the plan back afterwards with `--dl 1G --ul 1G --reason UPGRADE`.
+
 ## Run it as an automated assertion
 
 The full before/after/reattach sequence above is scripted end-to-end in `deploy/4g/scripts/assert-plan-change-no-live-effect.sh`, which is topology-agnostic:
