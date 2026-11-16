@@ -34,6 +34,9 @@ function towerInfo(id) {
       <span class="muted">${esc(t.generation)} · LTE eNodeB</span></h3>
     <table class="kv">
     ${row("Container", `${esc(t.service)} · ${esc(comp?.state || "unknown")}`)}
+    ${row(term("S1", "Link to core"), !st.s1 ? "unknown (MME not reachable)"
+      : st.s1.up ? `up · S1 Setup done · MME counts ${esc(st.s1.connected_ues)} connected UE${st.s1.connected_ues === 1 ? "" : "s"} · ${esc(st.s1.peer)}`
+      : "<b class=\"warnText\">down: the MME has no S1 link with this eNB</b>")}
     ${row("Software", esc(t.software))}
     ${row("Operator", `${esc(op.name)} · ${term("PLMN")} ${esc(t.plmn)}`)}
     ${row("Frequency", `band ${esc(t.band)} · ${esc(t.dl_mhz)} MHz down · ${term("EARFCN")} ${esc(t.earfcn)}`)}
@@ -68,7 +71,7 @@ function ueInfo(id) {
     ${row("Home network", `${esc(op.plmn === dev.home_plmn ? op.name : "?")} · ${term("PLMN")} ${esc(dev.home_plmn)} · ${term("APN")} ${esc(dev.apn)}`)}
     ${row("Subscriber", sub ? `${esc(sub.status)} · plan ${esc(sub.dl)}/${esc(sub.ul)} (${term("AMBR")})` : "not provisioned")}
     ${row("Network now", network)}
-    ${row("IP", esc(comp.ip || "–"))}
+    ${row("IP", sub?.network?.ip ? `${esc(sub.network.ip)} <span class="muted">(from the SMF)</span>` : "–")}
     ${row(term("roaming", "Roaming"), "no")}
     ${row("Signal", model.world.cells.map(c => `${esc(c.id)}: ${fmtDb(ue.gains[c.id])}`).join(" · "))}
     ${row("Position", `(${ue.x.toFixed(1)}, ${ue.y.toFixed(1)}) km · ${label(ue.x, ue.y)} ${travel}`)}

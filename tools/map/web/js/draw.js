@@ -106,7 +106,7 @@ function towerSvg(v, cell, selected) {
     <circle r="16" class="halo"/>
     <path d="M0,-18 L-9,10 L9,10 Z" fill="${color}" stroke="#111827" stroke-width="1.5"/>
     <line x1="-5" y1="-2" x2="5" y2="-2" stroke="#fff" stroke-width="1.5"/>
-    <text y="26" text-anchor="middle" class="label">${esc(cell.name || cell.id)}${st.down ? " · down" : ""}</text>
+    <text y="26" text-anchor="middle" class="label">${esc(cell.name || cell.id)}${st.down ? " · down" : st.s1 && !st.s1.up ? " · S1 down" : ""}</text>
   </g>`;
 }
 

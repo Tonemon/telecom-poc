@@ -56,7 +56,8 @@ export function ueStatus(ue) {
 export function towerStatus(cell) {
   const t = towerOf(cell.id);
   const comp = t ? model.components[t.service] : null;
-  return { down: comp ? comp.state !== "running" : false, tower: t };
+  // s1: the tower's link to the core as the MME sees it; null when unknown (MME not reachable).
+  return { down: comp ? comp.state !== "running" : false, tower: t, s1: comp?.s1 || null };
 }
 
 // A handover: the serving eNB changed between two polls while the UE stayed registered.

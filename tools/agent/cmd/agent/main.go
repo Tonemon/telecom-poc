@@ -28,6 +28,7 @@ func main() {
 	addr := env("AGENT_LISTEN_ADDR", ":8091")
 	log.Printf("agent: %d cells, %d devices; listening on %s", len(inv.Cells), len(inv.Devices), addr)
 	acts := actions.New(docker.NewSocket(env("AGENT_DOCKER_SOCKET", "/var/run/docker.sock")), inv,
-		env("AGENT_PROJECT", "telecom-poc-4g"), env("AGENT_PCAP_DIR", "/pcap"), env("AGENT_IPERF_SERVER", ""))
+		env("AGENT_PROJECT", "telecom-poc-4g"), env("AGENT_PCAP_DIR", "/pcap"), env("AGENT_IPERF_SERVER", "")).
+		WithMME(env("AGENT_MME_METRICS_URL", "http://172.22.0.5:9090"))
 	log.Fatal(http.ListenAndServe(addr, api.New(env("AGENT_TOKEN", "dev-agent-token"), inv, acts)))
 }

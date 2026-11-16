@@ -22,7 +22,7 @@ export function renderLists(el, sel) {
     return `<li class="row${sel.kind === "cell" && sel.id === c.id ? " selected" : ""}" data-cell="${esc(c.id)}">
       <span class="swatch" style="background:${st.down ? "#9ca3af" : cellColor(c.id)}"></span>
       <span class="name">${esc(c.name || c.id)}</span>
-      <span class="status">${st.down ? "down" : `${served} UE${served === 1 ? "" : "s"}`}</span></li>`;
+      <span class="status">${st.down ? "down" : st.s1 && !st.s1.up ? "S1 down" : `${served} UE${served === 1 ? "" : "s"}`}</span></li>`;
   }).join("");
   const devices = w.ues.map(u => {
     const st = ueStatus(u), dev = deviceOf(u.id);

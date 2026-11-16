@@ -5,9 +5,10 @@ package actions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ type Actions struct {
 	pcapDir     string
 	iperfServer string
 	stopWait    time.Duration // how long StopPcap waits for the file to settle
+	mmeURL      string        // the MME's metrics server (/enb-info): S1 state as the core sees it
+	http        *http.Client
 
 	mu         sync.Mutex
 	compCache  []Component
@@ -45,7 +48,13 @@ type Actions struct {
 func New(cli docker.Client, inv inventory.Inventory, project, pcapDir, iperfServer string) *Actions {
 	return &Actions{cli: cli, inv: inv, project: project, pcapDir: pcapDir, iperfServer: iperfServer,
 		stopWait: 3 * time.Second, pcaps: map[string]PcapInfo{}, pings: map[string]*pinger{},
-		speedtests: map[string]bool{}}
+		speedtests: map[string]bool{}, http: &http.Client{Timeout: 2 * time.Second}}
+}
+
+// WithMME sets the MME's metrics server, the source of each tower's S1 state.
+func (a *Actions) WithMME(url string) *Actions {
+	a.mmeURL = url
+	return a
 }
 
 func (a *Actions) isTower(service string) bool {
@@ -96,10 +105,51 @@ type Component struct {
 	State    string `json:"state"`
 	Health   string `json:"health"`
 	UptimeS  int    `json:"uptime_s"`
-	IP       string `json:"ip,omitempty"` // devices: the address the network gave them (tun_srsue)
+	S1       *S1    `json:"s1,omitempty"` // towers: the link to the core, as the MME sees it (nil: unknown)
 }
 
-var tunAddr = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)/`)
+// S1 is a tower's link to the core according to the MME: S1 Setup done, SCTP peer, UEs it serves.
+type S1 struct {
+	Up           bool   `json:"up"`
+	Peer         string `json:"peer,omitempty"`
+	ConnectedUEs int    `json:"connected_ues"`
+}
+
+// s1State asks the MME which eNBs it has; nil when the MME cannot be asked.
+func (a *Actions) s1State(ctx context.Context) map[int]S1 {
+	if a.mmeURL == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.mmeURL+"/enb-info", nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := a.http.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var info struct {
+		Items []struct {
+			ENBID int `json:"enb_id"`
+			S1    struct {
+				SCTP struct {
+					Peer string `json:"peer"`
+				} `json:"sctp"`
+				SetupSuccess bool `json:"setup_success"`
+			} `json:"s1"`
+			ConnectedUEs int `json:"num_connected_ues"`
+		} `json:"items"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&info) != nil {
+		return nil
+	}
+	out := map[int]S1{}
+	for _, it := range info.Items {
+		out[it.ENBID] = S1{Up: it.S1.SetupSuccess, Peer: it.S1.SCTP.Peer, ConnectedUEs: it.ConnectedUEs}
+	}
+	return out
+}
 
 // Components lists every container of the instance; refreshed at most every 5 s.
 func (a *Actions) Components(ctx context.Context) ([]Component, error) {
@@ -113,6 +163,7 @@ func (a *Actions) Components(ctx context.Context) ([]Component, error) {
 	if err != nil {
 		return nil, err
 	}
+	s1 := a.s1State(ctx)
 	out := make([]Component, 0, len(list))
 	for _, c := range list {
 		up := 0
@@ -121,10 +172,11 @@ func (a *Actions) Components(ctx context.Context) ([]Component, error) {
 		}
 		comp := Component{Service: c.Service, Name: c.Name, Hostname: c.Hostname, State: c.State,
 			Health: c.Health, UptimeS: up}
-		if c.State == "running" && a.isDevice(c.Service) {
-			if res, err := a.cli.Exec(ctx, c.Name, []string{"ip", "-4", "-o", "addr", "show", "tun_srsue"}); err == nil {
-				if m := tunAddr.FindStringSubmatch(res.Stdout); m != nil {
-					comp.IP = m[1]
+		if s1 != nil {
+			for _, cell := range a.inv.Cells {
+				if cell.Service == c.Service {
+					st := s1[cell.ENBID] // an eNB the MME does not know: S1 down
+					comp.S1 = &st
 				}
 			}
 		}

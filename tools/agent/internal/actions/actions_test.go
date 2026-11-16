@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -310,19 +312,53 @@ func TestPcapPathRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestComponentsReportDeviceIP(t *testing.T) {
-	f := &fakeDocker{containers: []docker.Container{running("ue2"), running("enb-a")},
-		stdout: map[string]string{"tun_srsue": "3: tun_srsue    inet 10.45.0.4/24 scope global tun_srsue\\       valid_lft forever\n"}}
-	comps, err := newActions(t, f).Components(context.Background())
+// Tower health includes the S1 link as the core (MME) sees it, not just the container state.
+func TestComponentsReportTowerS1FromMME(t *testing.T) {
+	mme := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/enb-info" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"items": [{"enb_id": 411, "plmn": "99970",
+			"s1": {"sctp": {"peer": "[172.22.0.40]:36412"}, "setup_success": true}, "num_connected_ues": 2}]}`))
+	}))
+	defer mme.Close()
+	inv2 := inventory.Inventory{
+		Cells:   []inventory.Cell{{ID: "A", Service: "enb-a", ENBID: 411}, {ID: "B", Service: "enb-b", ENBID: 412}},
+		Devices: inv.Devices,
+	}
+	f := &fakeDocker{containers: []docker.Container{running("enb-a"), running("enb-b"), running("ue2")}}
+	a := New(f, inv2, "telecom-poc-4g", t.TempDir(), "")
+	a.mmeURL = mme.URL
+	comps, err := a.Components(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	ips := map[string]string{}
+	by := map[string]Component{}
 	for _, c := range comps {
-		ips[c.Service] = c.IP
+		by[c.Service] = c
 	}
-	if ips["ue2"] != "10.45.0.4" || ips["enb-a"] != "" {
-		t.Fatalf("ips %v", ips)
+	if s := by["enb-a"].S1; s == nil || !s.Up || s.Peer != "[172.22.0.40]:36412" || s.ConnectedUEs != 2 {
+		t.Fatalf("enb-a S1 %+v", s)
+	}
+	if s := by["enb-b"].S1; s == nil || s.Up {
+		t.Fatalf("enb-b is not known to the MME, want S1 down: %+v", s)
+	}
+	if by["ue2"].S1 != nil {
+		t.Fatal("devices have no S1")
+	}
+	if len(f.joined()) != 0 {
+		t.Fatalf("health must not exec in containers any more: %v", f.joined())
+	}
+}
+
+func TestComponentsS1UnknownWhenMMEUnreachable(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("enb-a")}}
+	a := newActions(t, f)
+	a.mmeURL = "http://127.0.0.1:1"
+	comps, _ := a.Components(context.Background())
+	if comps[0].S1 != nil {
+		t.Fatalf("an unreachable MME must leave S1 unknown (nil), got %+v", comps[0].S1)
 	}
 }
 
