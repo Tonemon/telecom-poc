@@ -69,6 +69,27 @@ button:hover:not(:disabled) { background: #f1f5f9; }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+#card { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
+#card h3 { font-size: 15px; margin: 10px 0 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+table.kv { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.kv th { text-align: left; font-weight: 500; color: var(--muted); padding: 2px 8px 2px 0; vertical-align: top; white-space: nowrap; }
+table.kv td { padding: 2px 0; }
+.term { border-bottom: 1px dotted var(--muted); cursor: help; }
+#tooltip { position: fixed; z-index: 10; max-width: 320px; background: #111827; color: #f9fafb; font-size: 12px;
+  padding: 8px 10px; border-radius: 6px; pointer-events: none; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); }
+#tooltip .see { color: #9ca3af; margin-top: 4px; }
+.chart .axis { stroke: var(--line); }
+.chart .tick { font-size: 10px; fill: var(--muted); }
+.chart .hoMark { stroke: #111827; stroke-dasharray: 3 3; }
+.small { font-size: 12px; }
+.warnText { color: var(--warn); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); display: flex; flex-direction: column; gap: 6px; min-width: 360px; max-width: 640px; }
+.panel input[type=range] { width: 220px; vertical-align: middle; }
+.error { color: var(--bad); }
+.toggle { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+
 @media (max-width: 800px) {
   main { flex-direction: column; }
   #sidebar { width: auto; max-width: none; border-left: 0; border-top: 1px solid var(--line); max-height: 45vh; }

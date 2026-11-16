@@ -309,3 +309,19 @@ func TestPcapPathRejectsTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestComponentsReportDeviceIP(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue2"), running("enb-a")},
+		stdout: map[string]string{"tun_srsue": "3: tun_srsue    inet 10.45.0.4/24 scope global tun_srsue\\       valid_lft forever\n"}}
+	comps, err := newActions(t, f).Components(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ips := map[string]string{}
+	for _, c := range comps {
+		ips[c.Service] = c.IP
+	}
+	if ips["ue2"] != "10.45.0.4" || ips["enb-a"] != "" {
+		t.Fatalf("ips %v", ips)
+	}
+}

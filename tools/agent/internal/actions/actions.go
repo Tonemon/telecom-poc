@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -95,7 +96,10 @@ type Component struct {
 	State    string `json:"state"`
 	Health   string `json:"health"`
 	UptimeS  int    `json:"uptime_s"`
+	IP       string `json:"ip,omitempty"` // devices: the address the network gave them (tun_srsue)
 }
+
+var tunAddr = regexp.MustCompile(`inet (\d+\.\d+\.\d+\.\d+)/`)
 
 // Components lists every container of the instance; refreshed at most every 5 s.
 func (a *Actions) Components(ctx context.Context) ([]Component, error) {
@@ -115,8 +119,16 @@ func (a *Actions) Components(ctx context.Context) ([]Component, error) {
 		if c.State == "running" && !c.StartedAt.IsZero() {
 			up = int(time.Since(c.StartedAt).Seconds())
 		}
-		out = append(out, Component{Service: c.Service, Name: c.Name, Hostname: c.Hostname, State: c.State,
-			Health: c.Health, UptimeS: up})
+		comp := Component{Service: c.Service, Name: c.Name, Hostname: c.Hostname, State: c.State,
+			Health: c.Health, UptimeS: up}
+		if c.State == "running" && a.isDevice(c.Service) {
+			if res, err := a.cli.Exec(ctx, c.Name, []string{"ip", "-4", "-o", "addr", "show", "tun_srsue"}); err == nil {
+				if m := tunAddr.FindStringSubmatch(res.Stdout); m != nil {
+					comp.IP = m[1]
+				}
+			}
+		}
+		out = append(out, comp)
 	}
 	a.mu.Lock()
 	a.compCache, a.compAt = out, time.Now()

@@ -1,0 +1,20 @@
+{
+  "PCI": {"text": "Physical Cell Identity (0-503): the number a phone reads from a cell's sync signals to tell neighbouring cells apart. Not unique worldwide, only nearby.", "see": "docs/THEORY.md, LTE physical layer"},
+  "TAC": {"text": "Tracking Area Code: cells are grouped into tracking areas. An idle phone only tells the network when it enters a different area.", "see": "docs/THEORY.md, LTE mobility"},
+  "EARFCN": {"text": "E-UTRA Absolute Radio Frequency Channel Number: the channel a cell transmits on. It fixes the band and the exact frequency.", "see": "docs/THEORY.md, LTE physical layer"},
+  "ECI": {"text": "E-UTRAN Cell Identity: eNB ID (top 20 bits) plus cell ID (bottom 8 bits). Unique within the operator's network.", "see": "docs/parts/3-handover.md, §4"},
+  "eNB ID": {"text": "Identifies the base station (eNodeB). One eNB can serve several cells.", "see": "docs/4G.md, §3"},
+  "A3": {"text": "Measurement event A3: a neighbour becomes better than the serving cell by an offset. The phone reports it and the eNB decides on a handover.", "see": "docs/parts/3-handover.md, §4"},
+  "hysteresis": {"text": "Extra margin on top of the A3 offset, so a phone at the border does not hand over back and forth.", "see": "docs/parts/3-handover.md, §4"},
+  "time to trigger": {"text": "How long the A3 condition must hold (in radio time) before the phone reports it.", "see": "docs/parts/3-handover.md, §4"},
+  "AMBR": {"text": "Aggregate Maximum Bit Rate: the subscriber's speed limit (the plan), per direction.", "see": "docs/scenarios/2-change-subscriber-plan.md"},
+  "IMSI": {"text": "International Mobile Subscriber Identity: the SIM's identity. MCC (country) + MNC (operator) + subscriber number.", "see": "docs/4G.md, §4"},
+  "PLMN": {"text": "Public Land Mobile Network: an operator's network, written as MCC-MNC (here 999-70, a test code).", "see": "docs/4G.md, §4"},
+  "APN": {"text": "Access Point Name: which data network the phone asks for (here 'internet').", "see": "docs/4G.md, §4"},
+  "connected": {"text": "RRC connected: the phone has a radio connection to a cell right now and can send data immediately. Without traffic the eNB releases it after a while (idle).", "see": "docs/4G.md, §6 (Action 2)"},
+  "idle": {"text": "RRC idle: the phone is attached (it has an IP) but has no radio connection. The first packet wakes it up with a Service Request.", "see": "docs/4G.md, §6 (Action 2)"},
+  "S1": {"text": "The interface between an eNB and the core: S1-MME (signalling, SCTP) and S1-U (user data, GTP-U).", "see": "docs/THEORY.md, 4G components"},
+  "GTP": {"text": "GPRS Tunnelling Protocol: user packets travel between the eNB and the core inside GTP-U tunnels; a handover moves the tunnel to the new eNB.", "see": "docs/THEORY.md, Tunneling"},
+  "PRB": {"text": "Physical Resource Block: 12 subcarriers. The number of PRBs sets a cell's bandwidth (25 PRB = 5 MHz).", "see": "docs/experiments/1-radio-stability.md, §1"},
+  "roaming": {"text": "Using another operator's network with your own SIM. The visited network asks your home network to authenticate you.", "see": "docs/superpowers/specs (later)"}
+}

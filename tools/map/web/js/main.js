@@ -1,28 +1,29 @@
 // Wires the page together: picks the instance, starts polling, redraws on every change.
 
+import * as activity from "./activity.js";
 import * as api from "./api.js";
+import { margin, renderActions, renderInfo } from "./cards.js";
 import { drawHeat, drawOverlay, drawTerrain } from "./draw.js";
 import { label, view } from "./grid.js";
 import { renderDebug, renderLists, renderTop } from "./sidebar.js";
 import { model, start } from "./state.js";
 import { generate } from "./terrain.js";
+import * as tooltips from "./tooltips.js";
+import * as move from "./move.js";
 
 export const page = {
   sel: { kind: null, id: null },
   seed: Number(new URLSearchParams(location.search).get("seed")) || 20261116,
   debug: new URLSearchParams(location.search).has("debug"),
-  overlayExtra: () => "",       // later modules add SVG (travel preview, ghost tower)
-  onSelect: [],                 // later modules render cards
+  extras: [],                   // fn(view) -> SVG drawn on top (travel preview, ghost tower)
+  onSelect: [],
   onRedraw: [],
+  onMapClick: [],               // fn(event) -> true if it handled the click
+  lastCommand: {},              // terminal command of the last action, per action
 };
 
 const $ = id => document.getElementById(id);
 let v = null, terrain = null, heatKey = "", scheduled = false;
-
-function margin() {
-  const a3 = model.inventory?.cells?.[0]?.a3;
-  return a3 ? a3.offset_db + a3.hysteresis_db : 3;
-}
 
 function resize() {
   const box = $("map").getBoundingClientRect();
@@ -58,7 +59,8 @@ function draw() {
       heatKey = key;
     }
   }
-  drawOverlay($("overlay"), v, page.sel, page.overlayExtra(v));
+  drawOverlay($("overlay"), v, page.sel, page.extras.map(fn => fn(v)).join(""));
+  renderInfo(page.sel);
   renderLists($("lists"), page.sel);
   renderTop($("top"));
   if (page.debug) renderDebug($("debug"));
@@ -71,6 +73,7 @@ export function redraw() {
 
 export function select(kind, id) {
   page.sel = kind ? { kind, id } : { kind: null, id: null };
+  renderActions(page.sel);
   page.onSelect.forEach(fn => fn(page.sel));
   redraw();
 }
@@ -94,12 +97,19 @@ async function main() {
     const [x, y] = v.fromScreen(ev.clientX - r.left, ev.clientY - r.top);
     $("cursor").textContent = `${label(x, y)} · (${x.toFixed(1)}, ${y.toFixed(1)}) km`;
   });
-  for (const el of [$("overlay"), $("lists")]) {
-    el.addEventListener("click", ev => {
-      const t = clickTarget(ev);
-      if (t) select(t.kind, t.id);
-    });
-  }
+  $("overlay").addEventListener("click", ev => {
+    if (page.onMapClick.some(fn => fn(ev))) return;
+    const t = clickTarget(ev);
+    if (t) select(t.kind, t.id);
+  });
+  $("lists").addEventListener("click", ev => {
+    const t = clickTarget(ev);
+    if (t) select(t.kind, t.id);
+  });
+  await tooltips.init();
+  move.init();
+  activity.init();
+  select(null);
   if (page.debug) $("debug").hidden = false;
   await start(redraw);
   document.body.dataset.ready = "1";
