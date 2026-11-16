@@ -43,32 +43,43 @@ func (a *Actions) StartPcap(ctx context.Context, component string) (PcapInfo, er
 	if err != nil {
 		return PcapInfo{}, err
 	}
+	info := PcapInfo{Component: component, File: file, Started: time.Now(),
+		Command: command(component, args...) + "    # Ctrl-C to stop"}
+	// Reserve the slot before starting, so two starts at once cannot both run tcpdump.
 	a.mu.Lock()
-	_, busy := a.pcaps[component]
-	a.mu.Unlock()
-	if busy {
+	if _, busy := a.pcaps[component]; busy {
+		a.mu.Unlock()
 		return PcapInfo{}, fmt.Errorf("%s is already capturing: %w", component, ErrBusy)
 	}
-	c, err := a.running(ctx, component)
-	if err != nil {
+	a.pcaps[component] = info
+	a.mu.Unlock()
+	if err := a.startTcpdump(ctx, component, args); err != nil {
+		a.mu.Lock()
+		delete(a.pcaps, component)
+		a.mu.Unlock()
 		return PcapInfo{}, err
 	}
-	// Background it, keep its pid, and fail if it died straight away (e.g. no permission).
-	script := strings.Join(args, " ") + " >/tmp/agent-pcap.log 2>&1 & echo $! > /tmp/agent-pcap.pid; " +
+	return info, nil
+}
+
+func (a *Actions) startTcpdump(ctx context.Context, component string, args []string) error {
+	c, err := a.running(ctx, component)
+	if err != nil {
+		return err
+	}
+	// Stop a capture left over from before an agent restart, background the new one, keep its
+	// pid, and fail if it died straight away (e.g. no permission).
+	script := "kill -INT $(cat /tmp/agent-pcap.pid) 2>/dev/null; " +
+		strings.Join(args, " ") + " >/tmp/agent-pcap.log 2>&1 & echo $! > /tmp/agent-pcap.pid; " +
 		"sleep 0.5; kill -0 $! 2>/dev/null || { cat /tmp/agent-pcap.log; exit 1; }"
 	res, err := a.cli.Exec(ctx, c.Name, []string{"sh", "-c", script})
 	if err != nil {
-		return PcapInfo{}, err
+		return err
 	}
 	if res.Exit != 0 {
-		return PcapInfo{}, fmt.Errorf("tcpdump in %s failed: %s", component, strings.TrimSpace(res.Stdout+res.Stderr))
+		return fmt.Errorf("tcpdump in %s failed: %s", component, strings.TrimSpace(res.Stdout+res.Stderr))
 	}
-	info := PcapInfo{Component: component, File: file, Started: time.Now(),
-		Command: command(component, args...) + "    # Ctrl-C to stop"}
-	a.mu.Lock()
-	a.pcaps[component] = info
-	a.mu.Unlock()
-	return info, nil
+	return nil
 }
 
 // StopPcap stops the component's capture (SIGINT, so the file is complete) and waits for it to settle.

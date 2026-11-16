@@ -325,3 +325,99 @@ func TestComponentsReportDeviceIP(t *testing.T) {
 		t.Fatalf("ips %v", ips)
 	}
 }
+
+// blockingDocker blocks Exec of tcpdump until released, so two starts overlap.
+type blockingDocker struct {
+	*fakeDocker
+	entered, release chan struct{}
+}
+
+func (b *blockingDocker) Exec(ctx context.Context, c string, cmd []string) (docker.ExecResult, error) {
+	if strings.Contains(strings.Join(cmd, " "), "tcpdump") {
+		b.entered <- struct{}{}
+		<-b.release
+	}
+	return b.fakeDocker.Exec(ctx, c, cmd)
+}
+
+func TestConcurrentStartPcapStartsOneTcpdump(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("enb-a")}}
+	b := &blockingDocker{fakeDocker: f, entered: make(chan struct{}, 2), release: make(chan struct{})}
+	a := New(b, inv, "telecom-poc-4g", t.TempDir(), "")
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { _, err := a.StartPcap(context.Background(), "enb-a"); errs <- err }()
+	}
+	<-b.entered
+	select {
+	case <-b.entered:
+		close(b.release)
+		t.Fatal("two tcpdumps started for one component")
+	case err := <-errs:
+		if !errors.Is(err, ErrBusy) {
+			t.Fatalf("second start: %v, want ErrBusy", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second start neither ran nor failed")
+	}
+	close(b.release)
+	if err := <-errs; err != nil {
+		t.Fatalf("first start: %v", err)
+	}
+}
+
+func TestFailedStartPcapFreesTheSlot(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("enb-a")}, stderr: map[string]string{"tcpdump": "no permission"}}
+	a := newActions(t, f)
+	if _, err := a.StartPcap(context.Background(), "enb-a"); err == nil {
+		t.Fatal("want an error")
+	}
+	f.stderr = nil
+	if _, err := a.StartPcap(context.Background(), "enb-a"); err != nil {
+		t.Fatalf("after a failed start: %v", err)
+	}
+}
+
+// slowExitDocker: a ping stream returns only after its context ends AND it is let go, so an old
+// stream can finish after a new one started.
+type slowExitDocker struct {
+	*fakeDocker
+	exit chan struct{}
+}
+
+func (s *slowExitDocker) ExecStream(ctx context.Context, c string, cmd []string, line func(string)) error {
+	s.fakeDocker.ExecStream(ctx, c, cmd, line)
+	<-s.exit
+	return nil
+}
+
+func TestOldPingStreamDoesNotTurnOffNewOne(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue2")}}
+	s := &slowExitDocker{fakeDocker: f, exit: make(chan struct{})}
+	a := New(s, inv, "telecom-poc-4g", t.TempDir(), "")
+	ctx := context.Background()
+	if err := a.SetPing(ctx, "ue2", true); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	a.SetPing(ctx, "ue2", false)
+	if err := a.SetPing(ctx, "ue2", true); err != nil {
+		t.Fatal(err)
+	}
+	s.exit <- struct{}{} // the first stream ends now, after the second started
+	time.Sleep(20 * time.Millisecond)
+	if !a.PingSince("ue2", 0).On {
+		t.Fatal("the old stream's exit turned the new ping off")
+	}
+	close(s.exit)
+}
+
+func TestPingStartKillsALeftoverPing(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue2")}}
+	a := newActions(t, f)
+	a.SetPing(context.Background(), "ue2", true)
+	time.Sleep(20 * time.Millisecond)
+	if ex := f.joined()[0]; !strings.Contains(ex, "kill -INT $(cat /tmp/agent-ping.pid)") {
+		t.Fatalf("ping start does not clean up a leftover ping: %q", ex)
+	}
+}

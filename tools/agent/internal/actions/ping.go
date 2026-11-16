@@ -32,6 +32,7 @@ type PingState struct {
 
 type pinger struct {
 	on      bool
+	gen     int // which stream is current: an older stream that ends late must not turn this one off
 	cancel  context.CancelFunc
 	results []PingResult
 	next    int
@@ -88,32 +89,42 @@ func (a *Actions) SetPing(ctx context.Context, ue string, on bool) error {
 	if !a.isDevice(ue) {
 		return fmt.Errorf("%s: %w (ping runs on devices)", ue, ErrUnknown)
 	}
+	// Decide and record the new state in one step, so two calls at once cannot both start a ping.
 	a.mu.Lock()
 	p := a.pinger(ue)
-	already := p.on == on
-	a.mu.Unlock()
-	if already {
+	if p.on == on {
+		a.mu.Unlock()
 		return nil
 	}
+	p.on = on
+	p.gen++
+	gen := p.gen
+	if !on && p.cancel != nil {
+		p.cancel()
+	}
+	a.mu.Unlock()
+
 	c, err := a.running(ctx, ue)
-	if err != nil {
+	if !on {
+		if err == nil {
+			_, err = a.cli.Exec(ctx, c.Name, []string{"sh", "-c", "kill -INT $(cat /tmp/agent-ping.pid) 2>/dev/null; rm -f /tmp/agent-ping.pid"})
+		}
 		return err
 	}
-	if !on {
-		_, err := a.cli.Exec(ctx, c.Name, []string{"sh", "-c", "kill -INT $(cat /tmp/agent-ping.pid) 2>/dev/null; rm -f /tmp/agent-ping.pid"})
+	if err != nil {
 		a.mu.Lock()
-		p.on = false
-		if p.cancel != nil {
-			p.cancel()
+		if p.gen == gen {
+			p.on = false
 		}
 		a.mu.Unlock()
 		return err
 	}
 	streamCtx, cancel := context.WithCancel(context.Background()) // outlives the request
 	a.mu.Lock()
-	p.on, p.cancel, p.lastSeq = true, cancel, 0
+	p.cancel, p.lastSeq = cancel, 0
 	a.mu.Unlock()
-	script := "echo $$ > /tmp/agent-ping.pid; exec " + joinArgs(pingArgs)
+	// Stop a ping left over from before an agent restart, then become the ping (same pid).
+	script := "kill -INT $(cat /tmp/agent-ping.pid) 2>/dev/null; echo $$ > /tmp/agent-ping.pid; exec " + joinArgs(pingArgs)
 	go func() {
 		a.cli.ExecStream(streamCtx, c.Name, []string{"sh", "-c", script}, func(line string) {
 			a.mu.Lock()
@@ -121,7 +132,9 @@ func (a *Actions) SetPing(ctx context.Context, ue string, on bool) error {
 			a.mu.Unlock()
 		})
 		a.mu.Lock()
-		p.on = false // the ping ended (stopped, container gone, or the agent's stream closed)
+		if p.gen == gen {
+			p.on = false // this ping ended (stopped, container gone, or the stream closed)
+		}
 		a.mu.Unlock()
 	}()
 	return nil
