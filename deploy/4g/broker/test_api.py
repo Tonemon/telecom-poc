@@ -236,6 +236,25 @@ class WorldApiTest(ApiTest):
     def test_world_has_pathloss(self):
         self.assertEqual(self.request("GET", "/world")[1]["pathloss"]["edge_km"], 7.0)
 
+    def cell_b(self):
+        return next(c for c in self.request("GET", "/world")[1]["cells"] if c["id"] == "B")["x"]
+
+    def test_dry_run_true_and_yes_do_not_move(self):
+        for v in ("1", "true", "yes"):
+            status, body = self.request("PUT", f"/cells/B/position?dry_run={v}", {"x": 30, "y": 0})
+            self.assertEqual((status, "ues" in body), (200, True), v)
+            self.assertEqual(self.cell_b(), 10.0, v)
+
+    def test_dry_run_false_moves(self):
+        self.assertEqual(self.request("PUT", "/cells/B/position?dry_run=0", {"x": 11, "y": 0})[0], 200)
+        self.assertEqual(self.cell_b(), 11.0)
+
+    def test_unknown_dry_run_value_is_400(self):
+        status, body = self.request("PUT", "/cells/B/position?dry_run=maybe", {"x": 30, "y": 0})
+        self.assertEqual(status, 400)
+        self.assertIn("dry_run", body["error"])
+        self.assertEqual(self.cell_b(), 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

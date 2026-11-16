@@ -72,7 +72,10 @@ class Automation:
         s["pause"] = self._rng.uniform(*PAUSE_RANGE_S) if self.realtime and not s["shielded"] else None
 
     def set_realtime(self, on):
-        """On: the UEs due right away. Off: the UEs on an automated trip, to be stopped."""
+        """On: the UEs due right away. Off: the UEs on an automated trip, to be stopped.
+        Switching to the state it is already in changes nothing."""
+        if bool(on) == self.realtime:
+            return []
         self.realtime = bool(on)
         if on:
             due = []

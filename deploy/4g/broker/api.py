@@ -30,6 +30,7 @@ from control import Busy
 
 UE_PATH = re.compile(r"^/ues/([^/]+)/(gains|travel|position|shielded|stop)$")
 CELL_PATH = re.compile(r"^/cells/([^/]+)/position$")
+DRY_RUN_VALUES = {"1": True, "true": True, "yes": True, "0": False, "false": False, "no": False}
 CURL = 'curl -X {method} -H "Authorization: Bearer $AIR_TOKEN"{data} http://127.0.0.1:8090{path}'
 
 
@@ -183,7 +184,10 @@ def make_server(port, token, world, set_gain):
                 raise ApiError(404, f"unknown cell: {cell}")
             body = _json_object(raw, '{"x": 6, "y": 0}')
             x, y = _number(body, "x"), _number(body, "y")
-            if urllib.parse.parse_qs(query).get("dry_run") == ["1"]:
+            dry = urllib.parse.parse_qs(query).get("dry_run", ["0"])[-1].lower()
+            if dry not in DRY_RUN_VALUES:
+                raise ApiError(400, "dry_run must be 1/true/yes or 0/false/no")
+            if DRY_RUN_VALUES[dry]:
                 return self._send(200, {"id": cell, "x": x, "y": y, "ues": world.dry_run_cell(cell, x, y)})
             world.place_cell(cell, x, y)
             path = f"/cells/{cell}/position"

@@ -116,6 +116,14 @@ class AutomationTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.a.on_manual("ue9")
 
+    def test_realtime_on_twice_does_not_redecide(self):
+        a = Automation(random.Random(1), ["ue1", "ue2"])
+        self.assertEqual(a.set_realtime(True), ["ue1", "ue2"])
+        a.planned("ue1", {"action": "stay"})        # pausing
+        a.planned("ue2", {"action": "travel"})      # on a trip
+        self.assertEqual(a.set_realtime(True), [])  # already on: nothing changes
+        self.assertEqual(a.due(1.0), [])            # ue1 still pausing (pause >= 2 s)
+
 
 if __name__ == "__main__":
     unittest.main()
