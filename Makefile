@@ -134,6 +134,10 @@ submodules: ## Initialise and update git submodules
 test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eNB
 	./deploy/4g/scripts/test-multi.sh
 
+.PHONY: test-4g-handover
+test-4g-handover: ## Acceptance: ue2 travels A -> B -> A (real S1 handovers, ping survives); ue3 Faraday cage recovers
+	./deploy/4g/scripts/test-handover.sh
+
 .PHONY: test-provisioner-lifecycle
 test-provisioner-lifecycle: ## Prove suspend/resume and set-plan behave like a real telco: live detach, blocked reattach, signaled-not-enforced plan change
 	$(COMPOSE_4G) up -d --build
