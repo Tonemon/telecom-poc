@@ -153,6 +153,10 @@ test-4g-multi: ## Acceptance: 3 UEs across 2 cells attach + ping; 2 share one eN
 test-4g-handover: ## Acceptance: ue2 travels A -> B -> A (real S1 handovers, ping survives); ue3 Faraday cage recovers
 	./deploy/4g/scripts/test-handover.sh
 
+.PHONY: test-map
+test-map: ## Acceptance: the world map drives the instance (health, inventory, tower move, pcaps, speedtest, suspend/resume, activity)
+	./deploy/4g/scripts/test-map.sh
+
 .PHONY: test-provisioner-lifecycle
 test-provisioner-lifecycle: ## Prove suspend/resume and set-plan behave like a real telco: live detach, blocked reattach, signaled-not-enforced plan change
 	$(COMPOSE_4G) up -d --build
