@@ -11,7 +11,7 @@ make 4g-infra
 make telcoctl                # Make the provisioning tool if not yet done
 
 make 4g-demo-subscribers
-make 4g-demo-devices
+make 4g-devices
 TELCOCTL_TOKEN=dev-operator-token ./bin/telcoctl list
 ```
 

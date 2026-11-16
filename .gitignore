@@ -1,5 +1,6 @@
 # Working artifacts
 superpowers/
+.superpowers/
 
 # Build artifacts
 *.o
@@ -25,3 +26,6 @@ bin/telcoctl
 
 # srsRAN FFT benchmark cache (per host, see deploy/4g/docker-compose.multi.yml)
 deploy/4g/.fftw/
+
+# other
+course/

@@ -2,7 +2,7 @@
 
 *A realistic (and slightly surprising) telco behavior: changing a customer's plan reaches the network immediately, but the device they're actively using doesn't feel it until it reattaches.*
 
-This runs on the multi-UE demo topology (`docs/parts/2-multi-ue-broker.md`) using `telcoctl`, the operator-side provisioning client (`docs/parts/1-provisioning.md`). It uses `ue3` specifically, which is the only UE on `broker-b`, so forcing a reattach later in this walkthrough can't disturb any other UE the way it would on `ue1`/`ue2`'s shared cell.
+This runs on the multi-UE demo topology (`docs/parts/2-multi-ue-broker.md`) using `telcoctl`, the operator-side provisioning client (`docs/parts/1-provisioning.md`). It uses `ue3` specifically, which is the only UE on cell B (`enb-b`), so forcing a reattach later in this walkthrough can't disturb any other UE on its cell the way it could on `ue1`/`ue2`'s shared cell A.
 
 If you already have the multi-UE stack up from another scenario (e.g. `docs/scenarios/1-suspend-resume-subscriber.md`), you can skip straight to [Check the plan, then change it](#check-the-plan-then-change-it-while-attached).
 
@@ -21,7 +21,7 @@ make 4g-infra
 make telcoctl                # Make the provisioning tool if not yet done
 
 make 4g-demo-subscribers
-make 4g-demo-devices
+make 4g-devices
 ```
 
 ## Check the plan, then change it while attached
