@@ -21,3 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local /usr/local
 RUN ldconfig
+# iperf3 for the world map's speedtest: the agent runs `iperf3 -s` in the UPF, so a UE can measure
+# its radio + core path to the gateway (10.45.0.1) without a public server. Own layer: adding it
+# never rebuilds Open5GS.
+RUN apt-get update && apt-get install -y --no-install-recommends iperf3 \
+    && rm -rf /var/lib/apt/lists/*
