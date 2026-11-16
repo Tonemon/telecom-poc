@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>telecom-poc map</title>
+</head>
+<body>
+<h1>telecom-poc map</h1>
+<ul id="instances"></ul>
+<script>
+fetch("/api/instances").then(r => r.json()).then(list => {
+  document.getElementById("instances").innerHTML = list.map(i => `<li>${i.name}</li>`).join("");
+});
+</script>
+</body>
+</html>

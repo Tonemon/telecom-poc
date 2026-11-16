@@ -110,6 +110,19 @@ submodules: ## Initialise and update git submodules
 	@python3 ./deploy/4g/scripts/travel.py UE="$(UE)" TO="$(TO)" AT="$(AT)" SPEED="$(SPEED)" \
 	  SHIELD="$(SHIELD)" WATCH="$(WATCH)"
 
+COMPOSE_MAP := docker compose -f deploy/map/docker-compose.yml
+
+.PHONY: map
+map: ## Start the world map for the running multi-cell stack: http://127.0.0.1:8088
+	@docker network inspect telecom-poc-4g_epc >/dev/null 2>&1 || \
+	  { echo "No 4G stack running (network telecom-poc-4g_epc missing): start one first with 'make 4g-multi'"; exit 1; }
+	$(COMPOSE_MAP) up -d --build
+	@echo "Map: http://127.0.0.1:8088"
+
+.PHONY: map-down
+map-down: ## Stop the world map (the 4G stack keeps running)
+	$(COMPOSE_MAP) down
+
 # =====================================================================================
 # TEARDOWN
 # =====================================================================================
