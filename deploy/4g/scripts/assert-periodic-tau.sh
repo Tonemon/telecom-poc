@@ -13,13 +13,15 @@ UE="$1"
 IMSI=$(awk -F'= *' '/^imsi/{print $2}' "deploy/4g/config/multi/$UE.conf" | tr -d ' ')
 STAY_S="${STAY_S:-600}"  # past the ~9-minute implicit-detach mark for T3412 = 30 s
 
-# cm_state of the UE as the MME sees it: connected, idle, or "gone" (not listed).
+# cm_state of the UE as the MME sees it: connected, idle, or "gone" (not registered; after a
+# detach the MME keeps the context as "deregistered").
 cm_state() {
   $COMPOSE exec -T provisioner wget -qO- http://172.22.0.5:9090/ue-info 2>/dev/null | python3 -c '
 import json, sys
 imsi = sys.argv[1]
 items = json.load(sys.stdin).get("items", [])
-print(next((u.get("cm_state", "?") for u in items if u.get("supi", "").endswith(imsi)), "gone"))' "$IMSI"
+print(next((u.get("cm_state", "?") for u in items
+            if u.get("supi", "").endswith(imsi) and u.get("mm_state") == "registered"), "gone"))' "$IMSI"
 }
 
 echo "Waiting for $UE ($IMSI) to go idle..."

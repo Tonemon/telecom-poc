@@ -9,7 +9,7 @@ T3412 is taken from Attach Accept and TAU Accept, started whenever the UE goes
 idle while registered, and on expiry an integrity-protected TAU Request (EPS
 update type periodic, active flag 0, old GUTI) is sent. TAU Accept updates
 T3412 and the GUTI (acknowledged with TAU Complete); TAU Reject makes the UE
-attach again.
+attach again. A TAU whose RRC connection fails is retried after T3411.
 
 T3412 runs in wall time, unlike srsue's other timers (which tick with the
 radio): it is a contract with the core, whose timers run in wall time, and a
@@ -62,7 +62,7 @@ index ea91f0af2..167628a65 100644
                                                           const uint8_t& eps_bearer_id);
    void send_deactivate_eps_bearer_context_accept(const uint8_t& proc_transaction_id, const uint8_t& eps_bearer_id);
 diff --git a/srsue/src/stack/upper/nas.cc b/srsue/src/stack/upper/nas.cc
-index ef9ee5288..34d19258d 100644
+index ef9ee5288..796a483da 100644
 --- a/srsue/src/stack/upper/nas.cc
 +++ b/srsue/src/stack/upper/nas.cc
 @@ -134,6 +134,11 @@ void nas::run_tti()
@@ -85,7 +85,21 @@ index ef9ee5288..34d19258d 100644
    state.set_deregistered(substate);
  }
  
-@@ -446,6 +452,10 @@ void nas::plmn_search_completed(const found_plmn_t found_plmns[MAX_FOUND_PLMNS],
+@@ -428,6 +434,13 @@ bool nas::connection_request_completed(bool outcome)
+     }
+   } else {
+     logger.debug("RRC connection request failed. NAS State %s.", state.get_full_state_text().c_str());
++    if (state.get_state() == emm_state_t::state_t::registered && t3412_s > 0) {
++      // TS 24.301 5.5.3.2.6 b): a TAU whose connection could not be set up (lower layer failure)
++      // is tried again after T3411 (10 s). Without this, T3412 would never run again.
++      logger.info("RRC connection for the periodic TAU failed: trying again in %d s", t3411_duration_ms / 1000);
++      t3412_running  = true;
++      t3412_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(t3411_duration_ms);
++    }
+     if (state.get_state() == emm_state_t::state_t::service_request_initiated) {
+       srsran::console("RRC connection for Service Request failed.\n");
+       logger.info("RRC connection for Service Request failed.");
+@@ -446,6 +459,10 @@ void nas::plmn_search_completed(const found_plmn_t found_plmns[MAX_FOUND_PLMNS],
  void nas::left_rrc_connected()
  {
    logger.debug("RRC no longer connected. NAS State %s.", state.get_full_state_text().c_str());
@@ -96,7 +110,7 @@ index ef9ee5288..34d19258d 100644
  }
  
  bool nas::paging(s_tmsi_t* ue_identity)
-@@ -561,6 +571,12 @@ void nas::write_pdu(uint32_t lcid, unique_byte_buffer_t pdu)
+@@ -561,6 +578,12 @@ void nas::write_pdu(uint32_t lcid, unique_byte_buffer_t pdu)
      case LIBLTE_MME_MSG_TYPE_EMM_INFORMATION:
        parse_emm_information(lcid, std::move(pdu));
        break;
@@ -109,7 +123,7 @@ index ef9ee5288..34d19258d 100644
      case LIBLTE_MME_MSG_TYPE_EMM_STATUS:
        parse_emm_status(lcid, std::move(pdu));
        break;
-@@ -777,7 +793,7 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
+@@ -777,7 +800,7 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
    liblte_mme_unpack_attach_accept_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &attach_accept);
  
    if (attach_accept.eps_attach_result == LIBLTE_MME_EPS_ATTACH_RESULT_EPS_ONLY) {
@@ -118,7 +132,7 @@ index ef9ee5288..34d19258d 100644
      // TODO: Handle tai_list
      if (attach_accept.guti_present) {
        memcpy(&ctxt.guti, &attach_accept.guti.guti, sizeof(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT));
-@@ -2006,6 +2022,154 @@ void nas::send_identity_response(const uint8 id_type)
+@@ -2006,6 +2029,154 @@ void nas::send_identity_response(const uint8 id_type)
    ctxt_base.tx_count++;
  }
  
