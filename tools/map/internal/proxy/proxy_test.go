@@ -93,6 +93,32 @@ func TestProxyRejectsUnlisted(t *testing.T) {
 	}
 }
 
+func TestAllowsPowerRoutes(t *testing.T) {
+	var got seen
+	h := handler(t, &got, 200, `{}`)
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/api/instances/telecom-poc/agent/power/ue2"},
+		{"POST", "/api/instances/telecom-poc/agent/power/enb-b"},
+		{"GET", "/api/instances/telecom-poc/agent/core/unreachable"},
+	} {
+		got = seen{}
+		if rec := do(h, c.method, c.path, `{"action":"switch_off"}`); rec.Code != 200 || got.method != c.method {
+			t.Errorf("%s %s: %d, upstream %+v", c.method, c.path, rec.Code, got)
+		}
+	}
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/instances/telecom-poc/agent/power/ue2"},
+		{"POST", "/api/instances/telecom-poc/agent/power/ue2/x"},
+		{"POST", "/api/instances/telecom-poc/agent/core/unreachable"},
+		{"POST", "/api/instances/telecom-poc/air/power/ue2"},
+	} {
+		got = seen{}
+		if rec := do(h, c.method, c.path, ""); rec.Code != 403 || got.method != "" {
+			t.Errorf("%s %s: %d, upstream %+v; want 403", c.method, c.path, rec.Code, got)
+		}
+	}
+}
+
 func TestUnknownInstance404(t *testing.T) {
 	var got seen
 	if rec := do(handler(t, &got, 200, `{}`), "GET", "/api/instances/nope/air/world", ""); rec.Code != 404 {

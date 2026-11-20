@@ -5,6 +5,7 @@
 import { signalChart } from "./chart.js";
 import { label } from "./grid.js";
 import { db } from "./pathloss.js";
+import { coreView } from "./logic.js";
 import { cellColor, deviceOf, model, towerOf, towerStatus, ueStatus } from "./state.js";
 import { term } from "./tooltips.js";
 
@@ -31,7 +32,7 @@ function towerInfo(id) {
   }).join(", ");
   const comp = model.components[t.service];
   return `<h3><span class="swatch" style="background:${st.down ? "#9ca3af" : cellColor(id)}"></span> ${esc(cell.name || id)}
-      <span class="muted">${esc(t.generation)} · LTE eNodeB</span></h3>
+      <span class="muted">${esc(t.generation)} · LTE eNodeB${st.down ? " · <b>off</b>" : ""}</span></h3>
     <table class="kv">
     ${row("Container", `${esc(t.service)} · ${esc(comp?.state || "unknown")}`)}
     ${row(term("S1", "Link to core"), !st.s1 ? "unknown (MME not reachable)"
@@ -58,9 +59,12 @@ function ueInfo(id) {
   const dev = deviceOf(id) || {}, st = ueStatus(ue), comp = model.components[dev.service] || {};
   const op = model.inventory?.operator || {};
   const sub = st.sub;
-  const network = st.down ? "container down"
+  // The phone itself (on or off) next to what the core thinks: they disagree after a pulled battery.
+  const net = sub?.network || {};
+  const unreachable = st.unreachable ? ` · <b class="warnText">unreachable</b> (mobile reachable timer expired)` : "";
+  const network = st.down ? `<b>${esc(coreView({ on: false, mm: net.mm_state, cm: net.cm_state, unreachable: st.unreachable }))}</b>`
     : !st.registered ? "no service"
-    : `cell ${esc(st.serving)} · ${term(st.connected ? "connected" : "idle")}${st.noRadio ? " · <b class=\"warnText\">radio gone, MME not yet aware</b>" : ""}`;
+    : `cell ${esc(st.serving)} · ${term(st.connected ? "connected" : "idle")}${st.noRadio ? " · <b class=\"warnText\">radio gone, MME not yet aware</b>" : ""}${unreachable}`;
   const travel = ue.travel ? `→ (${ue.travel.x.toFixed(1)}, ${ue.travel.y.toFixed(1)}) at ${ue.travel.speed_kmh} km/h` : "";
   const auto = { manual: "manual", travelling: "travelling (manual trip)", auto: "under Realtime activity", shielded: "shielded (Faraday cage)" }[ue.automation] || ue.automation;
   return `<h3><span class="swatch round" style="background:${st.serving && !st.down ? cellColor(st.serving) : "#9ca3af"}"></span>

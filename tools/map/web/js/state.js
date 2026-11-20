@@ -11,6 +11,7 @@ export const model = {
   world: null,                  // air: positions, travel, gains, radio clock
   subs: {},                     // provisioner: imsi -> subscriber (with live network state)
   components: {},               // agent: service -> container state
+  unreachable: new Set(),       // agent: IMSIs the core marks unreachable (mobile reachable timer)
   history: {},                  // ue -> [{t, gains, serving}]
   pins: [],                     // handovers seen: {ue, from, to, x, y, at}
   errors: {},                   // source -> last error message
@@ -49,6 +50,7 @@ export function ueStatus(ue) {
   return {
     serving: registered ? cellByEnb(net.enb_id) : null,
     registered, connected, down, sub,
+    unreachable: !!dev && model.unreachable.has(dev.imsi),
     noRadio: !anyGain && registered,
   };
 }
@@ -111,6 +113,7 @@ export async function start(onChange) {
   const comps = () => poll("agent", async () => {
     const list = await api.get("agent", "/components");
     model.components = Object.fromEntries(list.map(c => [c.service, c]));
+    model.unreachable = new Set((await api.get("agent", "/core/unreachable")).imsis);
   }, onChange);
   await Promise.all([world(), subs(), comps()]);
   // Each poll waits for the previous one to finish, so a slow API never gets a pile of requests.

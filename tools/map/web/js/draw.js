@@ -107,7 +107,7 @@ function towerSvg(v, cell, selected) {
     <circle r="16" class="halo"/>
     <path d="M0,-18 L-9,10 L9,10 Z" fill="${color}" stroke="#111827" stroke-width="1.5"/>
     <line x1="-5" y1="-2" x2="5" y2="-2" stroke="#fff" stroke-width="1.5"/>
-    <text y="26" text-anchor="middle" class="label">${esc(cell.name || cell.id)}${st.down ? " · down" : st.s1 && !st.s1.up ? " · S1 down" : ""}</text>
+    <text y="26" text-anchor="middle" class="label">${esc(cell.name || cell.id)}${st.down ? " · off" : st.s1 && !st.s1.up ? " · S1 down" : ""}</text>
   </g>`;
 }
 
@@ -121,7 +121,7 @@ function ueSvg(v, ue, selected) {
     stroke = col;
   }
   if (selected) cls += " selected";
-  const mark = st.down ? `<text y="-12" text-anchor="middle" class="badge">down</text>`
+  const mark = st.down ? `<text y="-12" text-anchor="middle" class="badge">off</text>`
     : st.noRadio ? `<text y="4" text-anchor="middle" class="warn">!</text>` : "";
   return `<g class="${cls}" data-ue="${esc(ue.id)}" transform="translate(${px},${py})">
     <circle r="13" class="halo"/>
@@ -138,6 +138,7 @@ function signalLinesSvg(v, world) {
     if (st.down) continue;
     const [ux, uy] = v.toScreen(ue.x, ue.y);
     for (const cell of world.cells) {
+      if (towerStatus(cell).down) continue; // an off tower sends nothing
       const g = ue.gains[cell.id] || 0;
       if (g <= 0) continue;
       const [cx, cy] = v.toScreen(cell.x, cell.y);

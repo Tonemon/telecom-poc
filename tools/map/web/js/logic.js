@@ -35,3 +35,22 @@ export function validateMap(file, world) {
 export function pinLabel(p) {
   return `${p.from ?? "?"}→${p.to ?? "?"}${p.lost != null ? `, ${p.lost} lost` : ""}`;
 }
+
+const POWER = {
+  ue: [["switch_off", "Switch off", true], ["pull_battery", "Pull battery", true], ["switch_on", "Switch on", false]],
+  cell: [["shut_down", "Shut down", true], ["power_cut", "Power cut", true], ["power_on", "Power on", false]],
+};
+
+// powerButtons: a phone's or a tower's power buttons; the "off" ones only while it runs, the "on"
+// one only while it does not.
+export function powerButtons(kind, running) {
+  return POWER[kind].map(([action, label, whenOn]) => ({ action, label, enabled: whenOn === running }));
+}
+
+// coreView: a phone as the core sees it, next to whether the phone itself is on. A phone that is
+// off while the core still lists it is the "pull battery" lesson: the network doesn't know yet.
+export function coreView({ on, mm, cm, unreachable }) {
+  const core = mm === "registered" ? `registered, ${cm || "?"}` : "not registered";
+  const text = on ? core : mm === "registered" ? `phone off · core still has it registered (${cm || "?"})` : "phone off · not registered";
+  return unreachable && mm === "registered" ? `${text} · unreachable (mobile reachable timer expired)` : text;
+}
