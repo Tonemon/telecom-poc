@@ -38,18 +38,12 @@ def run_ticks(air, ctl, srate):
         last_n, last_t = n, t
 
 
-def radio_s(holder, srate):
-    air = holder.get("air")
-    return air.radio_samples() / srate if air else 0.0
-
-
 def main():
     with open(CONFIG) as f:
         cfg = load_config(f.read())
     holder = {}
     ctl = Controller(World(cfg), lambda ue, cell, g: holder["air"].set_gain(ue, cell, g), log=log)
-    air = holder["air"] = ZmqAir(cfg, ctl.initial_gains(), on_presence=lambda ep, on: log(
-        f"air: {ep[0]} {ep[1]} {'on' if on else 'off'} air at radio time {radio_s(holder, cfg.srate):.2f} s"))
+    air = holder["air"] = ZmqAir(cfg, ctl.initial_gains(), on_presence=ctl.set_present)
     links = ", ".join(f"{u}<->{c}={g:.3g}" for (u, c), g in sorted(ctl.initial_gains().items()))
     log(f"air: {len(cfg.cells)} cells, {len(cfg.ues)} UEs; gains {links}")
     api = make_server(cfg.api_port, os.environ.get("AIR_TOKEN", "dev-air-token"), ctl, ctl.override_gain)

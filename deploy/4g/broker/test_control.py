@@ -6,11 +6,21 @@ from test_world import config
 from world import World
 
 
+def on_air_all(ctl):
+    """Every cell and UE joined the air (a new controller starts with nobody on it)."""
+    snap = ctl.snapshot()
+    for cell in snap["cells"]:
+        ctl.set_present(("cell", cell["id"]), True)
+    for ue in snap["ues"]:
+        ctl.set_present(("ue", ue["id"]), True)
+
+
 class ControllerTest(unittest.TestCase):
     def setUp(self):
         self.applied = []
         self.c = Controller(World(config()), lambda ue, cell, g: self.applied.append((ue, cell, g)),
                             log=lambda *_: None, rng=random.Random(3))
+        on_air_all(self.c)
 
     def gains_of(self, ue):
         return next(u for u in self.c.snapshot()["ues"] if u["id"] == ue)["gains"]
@@ -135,6 +145,43 @@ class ControllerTest(unittest.TestCase):
                 break
         self.assertIsNotNone(self.ue("ue1")["travel"])
 
+    def test_new_controller_has_nobody_on_air(self):
+        c = Controller(World(config()), lambda *_: None, log=lambda *_: None)
+        snap = c.snapshot()
+        self.assertFalse(any(x["on_air"] for x in snap["cells"] + snap["ues"]))
+        self.assertEqual({u["automation"] for u in snap["ues"]}, {"off"})
+        self.assertEqual(c.random_activity(), [])
+
+    def test_snapshot_has_on_air(self):
+        self.c.set_present(("cell", "A"), False)
+        snap = self.c.snapshot()
+        self.assertFalse(next(x for x in snap["cells"] if x["id"] == "A")["on_air"])
+        self.assertTrue(next(x for x in snap["cells"] if x["id"] == "B")["on_air"])
+        self.assertTrue(self.ue("ue1")["on_air"])
+
+    def test_going_off_air_stops_an_automated_trip(self):
+        self.c.set_shielded("ue1", True)
+        self.c.set_shielded("ue3", True)
+        self.c.set_realtime(True)
+        for _ in range(50):
+            self.c.tick(1.0, 10)
+            if self.ue("ue2")["travel"]:
+                break
+        self.assertIsNotNone(self.ue("ue2")["travel"])
+        self.c.set_present(("ue", "ue2"), False)
+        self.assertIsNone(self.ue("ue2")["travel"])
+        self.assertEqual(self.ue("ue2")["automation"], "off")
+
+    def test_random_activity_skips_off_ue(self):
+        self.c.set_present(("ue", "ue2"), False)
+        self.c.set_present(("ue", "ue3"), False)
+        self.assertEqual([p["ue"] for p in self.c.random_activity()], ["ue1"])
+
+    def test_manual_travel_of_an_off_ue_is_allowed(self):
+        self.c.set_present(("ue", "ue2"), False)
+        self.c.travel("ue2", 8, 0, 1000)
+        self.assertEqual(self.ue("ue2")["travel"]["x"], 8.0)
+
     def test_snapshot_reports_automation_and_activity(self):
         self.c.set_shielded("ue3", True)
         self.c.travel("ue2", 8, 0, 1000)
@@ -168,6 +215,7 @@ class ControllerConcurrencyTest(unittest.TestCase):
         act.plan = lambda ue, cells, pathloss, rng: {"ue": ue, "action": "travel", "x": 5.0, "y": 3.0, "speed_kmh": 300.0}
         try:
             c = Controller(BlockingWorld(config()), lambda *_: None, log=lambda *_: None, rng=random.Random(1))
+            on_air_all(c)
             c.set_shielded("ue2", True)
             c.set_shielded("ue3", True)
             c.set_realtime(True)
