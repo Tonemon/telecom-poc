@@ -54,3 +54,16 @@ export function coreView({ on, mm, cm, unreachable }) {
   const text = on ? core : mm === "registered" ? `phone off · core still has it registered (${cm || "?"})` : "phone off · not registered";
   return unreachable && mm === "registered" ? `${text} · unreachable (mobile reachable timer expired)` : text;
 }
+
+// radioState: a device as the radio sees it. "not on the air": its container runs but the air
+// has no session with it (it should rejoin by itself within seconds; if it stays like this, it is
+// stuck and needs a restart).
+export function radioState(running, onAir) {
+  if (!running) return "off";
+  return onAir === false ? "not on the air" : "on";
+}
+
+// chartCells: the cells the signal chart draws; a tower that is off sends nothing.
+export function chartCells(cells, isOff) {
+  return cells.filter(c => !isOff(c.id));
+}

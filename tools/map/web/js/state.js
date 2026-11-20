@@ -2,6 +2,7 @@
 // a reload starts empty (no history, no pins).
 
 import * as api from "./api.js";
+import { radioState } from "./logic.js";
 
 const HISTORY_S = 300;          // signal chart: last 5 minutes
 export const COLORS = ["#2563eb", "#ea580c", "#16a34a", "#9333ea", "#db2777", "#0891b2"];
@@ -39,6 +40,7 @@ function cellByEnb(enbId) {
 // What the network says about a UE: serving cell, registered/connected, and whether its
 // container runs. noRadio: the air gives it no signal at all but the MME still lists it.
 export function ueStatus(ue) {
+  // radio: on, off, or "not on the air" (running, but the air has no session with it)
   const dev = deviceOf(ue.id);
   const sub = dev ? model.subs[dev.imsi] : null;
   const net = sub?.network || null;
@@ -51,6 +53,7 @@ export function ueStatus(ue) {
     serving: registered ? cellByEnb(net.enb_id) : null,
     registered, connected, down, sub,
     unreachable: !!dev && model.unreachable.has(dev.imsi),
+    radio: radioState(!down, ue.on_air),
     noRadio: !anyGain && registered,
   };
 }
@@ -59,7 +62,8 @@ export function towerStatus(cell) {
   const t = towerOf(cell.id);
   const comp = t ? model.components[t.service] : null;
   // s1: the tower's link to the core as the MME sees it; null when unknown (MME not reachable).
-  return { down: comp ? comp.state !== "running" : false, tower: t, s1: comp?.s1 || null };
+  const down = comp ? comp.state !== "running" : false;
+  return { down, tower: t, s1: comp?.s1 || null, radio: radioState(!down, cell.on_air) };
 }
 
 // A handover: the serving eNB changed between two polls while the UE stayed registered.

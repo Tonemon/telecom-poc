@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { coreView, pinLabel, powerButtons, validateMap } from "../web/js/logic.js";
+import { chartCells, coreView, pinLabel, powerButtons, radioState, validateMap } from "../web/js/logic.js";
 
 const world = {
   cells: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 10, y: 0 }],
@@ -70,4 +70,18 @@ test("the core's view of a phone", () => {
   assert.equal(coreView(reg("idle", { on: false, unreachable: true })),
     "phone off · core still has it registered (idle) · unreachable (mobile reachable timer expired)");
   assert.equal(coreView({ on: false, mm: "", cm: "", unreachable: false }), "phone off · not registered");
+});
+
+test("a running radio that is not on the air is called out", () => {
+  assert.equal(radioState(true, true), "on");
+  assert.equal(radioState(false, false), "off");
+  assert.equal(radioState(false, undefined), "off");
+  assert.equal(radioState(true, false), "not on the air");
+  assert.equal(radioState(true, undefined), "on"); // an air without on_air: assume it is
+});
+
+test("the signal chart leaves out towers that are off", () => {
+  const cells = [{ id: "A" }, { id: "B" }];
+  assert.deepEqual(chartCells(cells, id => id === "B").map(c => c.id), ["A"]);
+  assert.deepEqual(chartCells(cells, () => false).map(c => c.id), ["A", "B"]);
 });
