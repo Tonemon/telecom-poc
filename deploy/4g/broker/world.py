@@ -1,6 +1,6 @@
 """The world: where cells and UEs are, and how strongly each UE hears each cell.
 
-Pure Python (no GNU Radio), thread-safe. Positions are 2D, in kilometres; speeds in km/h.
+Pure Python (no sockets), thread-safe. Positions are 2D, in kilometres; speeds in km/h.
 Time only moves through tick(dt_s): the air feeds it *radio* seconds (counted in samples), so a
 UE travels at its speed in the same time base as the LTE procedures it triggers, however slowly
 the host runs the virtual radio.

@@ -21,8 +21,10 @@ class EngineTest(unittest.TestCase):
     def setUp(self):
         self.events = []
         gains = {("ue1", "A"): 0.5, ("ue1", "B"): 0.25, ("ue2", "A"): 1.0, ("ue2", "B"): 0.0}
+        self.now = 0.0
         self.e = Engine(["A", "B"], ["ue1", "ue2"], gains, k=K, ahead=AHEAD,
-                        on_presence=lambda ep, on: self.events.append((ep, on)))
+                        on_presence=lambda ep, on: self.events.append((ep, on)),
+                        gap_s=0.2, clock=lambda: self.now)
 
     def run_step(self, request=()):
         """One step; every endpoint in request asks for (and takes) its chunk."""
@@ -78,6 +80,54 @@ class EngineTest(unittest.TestCase):
         self.assertFalse(self.e.ready())  # ue1 does not cover [K, 2K) yet
         self.e.tx_data(UE1, ones(K))
         self.assertTrue(self.e.ready())
+
+    def test_partial_step_when_a_transmitter_is_short(self):
+        # srsRAN may run only a few samples ahead (GNU Radio advanced by whatever was there):
+        # the air steps as far as every waited-for endpoint reaches, never deadlocking on K.
+        self.e.join(A)
+        self.e.join(UE1)
+        self.e.tx_data(UE1, ramp(K + 2))
+        self.e.tx_data(A, ones(100))
+        self.run_step([A])
+        self.assertEqual(self.e.ready(), 2)
+        got = self.run_step([A])[A][0]
+        np.testing.assert_allclose(got, 0.5 * (ramp(2) + K))
+        self.assertEqual(self.e.t, K + 2)
+        self.assertEqual(self.e.ready(), 0)
+
+    def test_burst_gap_stops_the_wait(self):
+        # srsue ends a tx burst and sends nothing until its next transmission; the air waits
+        # for a transmitter only while its stream keeps coming.
+        self.e.join(A)
+        self.e.join(UE1)
+        self.e.tx_data(UE1, ones(K))
+        self.run_step([A, UE1])
+        self.now = 0.1
+        self.assertEqual(self.e.ready(), 0)  # a short silence: still waiting
+        self.now = 0.35
+        self.assertEqual(self.e.ready(), K)  # burst over: the air goes on without ue1
+        got = self.run_step([A, UE1])[A][0]
+        np.testing.assert_allclose(got, np.zeros(K))
+        # Next burst: srsRAN first fills the gap with zeros (too late, dropped), then sends.
+        self.e.tx_data(UE1, np.concatenate([np.zeros(K, np.complex64), ones(2 * K, 2.0)]))
+        self.assertEqual(self.e.ready(), K)  # waits for it again
+        got = self.run_step([A])[A][0]
+        np.testing.assert_allclose(got, ones(K, 1.0))  # 0.5 * 2.0, placed at a0 + j
+
+    def test_burst_gap_does_not_drop_rx_of_a_synced_endpoint(self):
+        self.e.join(UE1)
+        self.e.tx_data(UE1, ones(K))
+        self.run_step()
+        self.now = 1.0
+        for _ in range(AHEAD + 2):
+            if self.e.ready():
+                self.e.step()
+        self.e.rx_request(UE1)
+        self.e.rx_request(UE1)
+        self.e.rx_request(UE1)
+        got = self.e.replies(UE1)
+        self.assertEqual(len(got), AHEAD)  # it stalled with a full queue: nothing was dropped
+        self.assertEqual(self.e.t, AHEAD * K)
 
     def test_does_not_wait_for_endpoint_that_never_transmitted(self):
         self.e.join(UE1)

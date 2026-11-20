@@ -1,6 +1,6 @@
 """Random and realtime activity: who moves where, and when they decide again.
 
-Pure Python (no threads, no GNU Radio): the controller asks plan() for a UE's next move and
+Pure Python (no threads, no sockets): the controller asks plan() for a UE's next move and
 keeps an Automation that tracks, per UE, whether it is under automation, on a manual trip,
 shielded, or pausing before its next decision. Time only advances through due(radio_dt_s),
 in radio seconds, like travel.

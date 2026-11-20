@@ -1,6 +1,6 @@
 """Glue between the world (where UEs are), the air (the radio gains) and the API.
 
-Pure Python, testable without GNU Radio. The air calls tick() with how much *radio* time passed
+Pure Python, testable without sockets. The air calls tick() with how much *radio* time passed
 (samples / sample rate) and how much wall time; the controller moves the world on by the radio
 time and pushes only the gains that changed to the air.
 

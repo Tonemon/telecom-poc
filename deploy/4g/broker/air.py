@@ -1,6 +1,6 @@
 """The shared "air": one radio medium for every cell and every UE.
 
-Pure configuration and planning, no GNU Radio import, so it is unit-testable anywhere.
+Pure configuration and planning, no sockets, so it is unit-testable anywhere.
 Each UE hears every cell and every cell hears every UE, each through its own gain:
 
     DL into UE u   = sum over cells c of  g[u][c] * (cell c's transmit)

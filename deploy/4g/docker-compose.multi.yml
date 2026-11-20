@@ -136,6 +136,7 @@ services:
       - "./config/multi/air.json:/conf/air.json:ro"
     environment:
       AIR_TOKEN: "${AIR_TOKEN:-dev-air-token}"
+      AIR_DEBUG: "${AIR_DEBUG:-}"  # 1: log the engine state every 2 s
     ports:
       - "127.0.0.1:8090:8090"  # control API (bearer token), host-local only
     networks:
