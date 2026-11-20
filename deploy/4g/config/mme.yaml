@@ -39,3 +39,10 @@ mme:
     ciphering_order: [ EEA2, EEA1, EEA0 ]
   network_name:
     full: Open5GS
+  time:
+    # Periodic TAU timer, sent to every UE in Attach Accept. An idle phone reports in this often;
+    # the MME marks a silent one unreachable after T3412 + 4 min and detaches it implicitly
+    # after another T3412 + 4 min (the "pull battery" lesson, docs/parts/5-hot-join.md).
+    # Default 540 s; 30 s keeps that lesson within a class.
+    t3412:
+      value: 30

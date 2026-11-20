@@ -1,0 +1,275 @@
+Subject: [PATCH] feat(nas): periodic tracking area updates (T3412)
+
+Stock srsue ignores T3412 ("TODO: Handle t3412") and has no Tracking Area
+Update Request at all, so an idle UE never reports in and the MME marks it
+unreachable and detaches it implicitly. A real idle phone sends a periodic TAU
+every T3412 (TS 24.301 5.3.5, 5.5.3.2).
+
+T3412 is taken from Attach Accept and TAU Accept, started whenever the UE goes
+idle while registered, and on expiry an integrity-protected TAU Request (EPS
+update type periodic, active flag 0, old GUTI) is sent. TAU Accept updates
+T3412 and the GUTI (acknowledged with TAU Complete); TAU Reject makes the UE
+attach again.
+
+T3412 runs in wall time, unlike srsue's other timers (which tick with the
+radio): it is a contract with the core, whose timers run in wall time, and a
+virtual radio runs slower than real time.
+---
+diff --git a/srsue/hdr/stack/upper/nas.h b/srsue/hdr/stack/upper/nas.h
+index ea91f0af2..167628a65 100644
+--- a/srsue/hdr/stack/upper/nas.h
++++ b/srsue/hdr/stack/upper/nas.h
+@@ -23,6 +23,7 @@
+ #define SRSUE_NAS_H
+ 
+ #include "nas_base.h"
++#include <chrono>
+ #include "srsran/asn1/liblte_mme.h"
+ #include "srsran/common/buffer_pool.h"
+ #include "srsran/common/common.h"
+@@ -139,6 +140,13 @@ private:
+   srsran::timer_handler::unique_timer t3411;          // started when attach failed
+   srsran::timer_handler::unique_timer t3421;          // started when detach request is sent
+   srsran::timer_handler::unique_timer reattach_timer; // started to trigger delayed re-attach
++  // Periodic TAU (T3412), runs while EMM-REGISTERED and idle. In wall time, not in radio time
++  // like the timers above: it is a contract with the core, whose timers run in wall time, and the
++  // virtual radio runs slower than real time.
++  uint32_t                              t3412_s       = 0; // from Attach/TAU Accept; 0: deactivated
++  bool                                  t3412_running = false;
++  std::chrono::steady_clock::time_point t3412_deadline;
++  void                                  t3412_expired();
+ 
+   // Values according to TS 24.301 Sec 10.2
+   // t3402_duration_ms deviates from the 12m spec default: shortened for this
+@@ -196,6 +204,8 @@ private:
+   void parse_activate_test_mode(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
+   void parse_close_ue_test_loop(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
+   void parse_modify_eps_bearer_context_request(srsran::unique_byte_buffer_t pdu);
++  void parse_tracking_area_update_accept(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
++  void parse_tracking_area_update_reject(uint32_t lcid, srsran::unique_byte_buffer_t pdu);
+ 
+   // Packet generators
+   void gen_attach_request(srsran::unique_byte_buffer_t& msg);
+@@ -213,6 +223,10 @@ private:
+   void send_attach_request();
+   void send_detach_request(bool switch_off);
+   void send_detach_accept();
++  void send_tracking_area_update_request();
++  void send_tracking_area_update_complete();
++  void set_t3412(const LIBLTE_MME_GPRS_TIMER_STRUCT& t);
++  void start_t3412();
+   void send_activate_dedicated_eps_bearer_context_accept(const uint8_t& proc_transaction_id,
+                                                          const uint8_t& eps_bearer_id);
+   void send_deactivate_eps_bearer_context_accept(const uint8_t& proc_transaction_id, const uint8_t& eps_bearer_id);
+diff --git a/srsue/src/stack/upper/nas.cc b/srsue/src/stack/upper/nas.cc
+index ef9ee5288..34d19258d 100644
+--- a/srsue/src/stack/upper/nas.cc
++++ b/srsue/src/stack/upper/nas.cc
+@@ -134,6 +134,11 @@ void nas::run_tti()
+   // Process PLMN selection ongoing procedures
+   callbacks.run();
+ 
++  if (t3412_running && std::chrono::steady_clock::now() >= t3412_deadline) {
++    t3412_running = false;
++    t3412_expired();
++  }
++
+   // Transmit initiating messages if necessary
+   switch (state.get_state()) {
+     case emm_state_t::state_t::deregistered:
+@@ -196,6 +201,7 @@ void nas::enter_emm_deregistered(emm_state_t::deregistered_substate_t substate)
+ {
+   // TODO Start cell selection.
+   clear_eps_bearer();
++  t3412_running = false;
+   state.set_deregistered(substate);
+ }
+ 
+@@ -446,6 +452,10 @@ void nas::plmn_search_completed(const found_plmn_t found_plmns[MAX_FOUND_PLMNS],
+ void nas::left_rrc_connected()
+ {
+   logger.debug("RRC no longer connected. NAS State %s.", state.get_full_state_text().c_str());
++  // TS 24.301 5.3.5: T3412 is started again whenever the UE goes from EMM-CONNECTED to EMM-IDLE.
++  if (state.get_state() == emm_state_t::state_t::registered) {
++    start_t3412();
++  }
+ }
+ 
+ bool nas::paging(s_tmsi_t* ue_identity)
+@@ -561,6 +571,12 @@ void nas::write_pdu(uint32_t lcid, unique_byte_buffer_t pdu)
+     case LIBLTE_MME_MSG_TYPE_EMM_INFORMATION:
+       parse_emm_information(lcid, std::move(pdu));
+       break;
++    case LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_ACCEPT:
++      parse_tracking_area_update_accept(lcid, std::move(pdu));
++      break;
++    case LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_REJECT:
++      parse_tracking_area_update_reject(lcid, std::move(pdu));
++      break;
+     case LIBLTE_MME_MSG_TYPE_EMM_STATUS:
+       parse_emm_status(lcid, std::move(pdu));
+       break;
+@@ -777,7 +793,7 @@ void nas::parse_attach_accept(uint32_t lcid, unique_byte_buffer_t pdu)
+   liblte_mme_unpack_attach_accept_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &attach_accept);
+ 
+   if (attach_accept.eps_attach_result == LIBLTE_MME_EPS_ATTACH_RESULT_EPS_ONLY) {
+-    // TODO: Handle t3412.unit
++    set_t3412(attach_accept.t3412);
+     // TODO: Handle tai_list
+     if (attach_accept.guti_present) {
+       memcpy(&ctxt.guti, &attach_accept.guti.guti, sizeof(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT));
+@@ -2006,6 +2022,154 @@ void nas::send_identity_response(const uint8 id_type)
+   ctxt_base.tx_count++;
+ }
+ 
++/*******************************************************************************
++ * Periodic tracking area update (TS 24.301 5.5.3.2)
++ ******************************************************************************/
++
++void nas::set_t3412(const LIBLTE_MME_GPRS_TIMER_STRUCT& t)
++{
++  // GPRS timer, TS 24.008 10.5.7.3: unit 0 = 2 s, 1 = 1 min, 2 = decihours, 7 = deactivated;
++  // other units are read as 1 min.
++  switch (t.unit) {
++    case LIBLTE_MME_GPRS_TIMER_UNIT_2_SECONDS:
++      t3412_s = 2 * t.value;
++      break;
++    case LIBLTE_MME_GPRS_TIMER_UNIT_6_MINUTES:
++      t3412_s = 360 * t.value;
++      break;
++    case 0x7:
++      t3412_s = 0;
++      break;
++    default:
++      t3412_s = 60 * t.value;
++      break;
++  }
++  logger.info("T3412 (periodic TAU) set to %d s", t3412_s);
++}
++
++void nas::start_t3412()
++{
++  t3412_running  = t3412_s > 0;
++  t3412_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(t3412_s);
++}
++
++void nas::t3412_expired()
++{
++  // TS 24.301 5.3.5: on expiry an idle, registered UE starts a periodic tracking area update.
++  if (state.get_state() != emm_state_t::state_t::registered) {
++    logger.info("Timer T3412 expired while not registered: no periodic TAU");
++  } else if (rrc->is_connected()) {
++    start_t3412(); // T3412 does not run in EMM-CONNECTED; start again for the next idle period
++  } else {
++    logger.info("Timer T3412 expired: sending periodic tracking area update");
++    send_tracking_area_update_request();
++  }
++}
++
++void nas::send_tracking_area_update_request()
++{
++  if (!have_guti || !have_ctxt) {
++    logger.warning("No GUTI or security context: cannot send a periodic TAU");
++    return;
++  }
++  unique_byte_buffer_t pdu = srsran::make_byte_buffer();
++  if (!pdu) {
++    logger.error("Couldn't allocate PDU in %s().", __FUNCTION__);
++    return;
++  }
++  // Integrity protected (not ciphered: it is sent in the Initial UE Message), TS 24.301 8.2.29.
++  uint8_t* p = pdu->msg;
++  *p++       = (LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY << 4) | LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT;
++  p += 4; // MAC, filled in by apply_security_config()
++  *p++ = ctxt_base.tx_count & 0xFF;
++  *p++ = (LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS << 4) | LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT;
++  *p++ = LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_REQUEST;
++  // NAS key set identifier (TSC native, bits 5-8) and EPS update type (bits 1-4): periodic
++  // updating, active flag 0 (no user data: the network releases the connection afterwards).
++  *p++ = ((LIBLTE_MME_TYPE_OF_SECURITY_CONTEXT_FLAG_NATIVE & 0x1) << 7) | ((ctxt.ksi & 0x7) << 4) |
++         LIBLTE_MME_EPS_UPDATE_TYPE_PERIODIC_UPDATING;
++  // Old GUTI (EPS mobile identity, LV)
++  LIBLTE_MME_EPS_MOBILE_ID_STRUCT old_guti = {};
++  old_guti.type_of_id                       = LIBLTE_MME_EPS_MOBILE_ID_TYPE_GUTI;
++  memcpy(&old_guti.guti, &ctxt.guti, sizeof(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT));
++  liblte_mme_pack_eps_mobile_id_ie(&old_guti, &p);
++  pdu->N_bytes = p - pdu->msg;
++
++  if (apply_security_config(pdu, LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY)) {
++    logger.error("Error applying NAS security.");
++    return;
++  }
++  if (pcap != nullptr) {
++    pcap->write_nas(pdu->msg, pdu->N_bytes);
++  }
++  logger.info("Sending periodic tracking area update request");
++  srsran::console("Periodic tracking area update\n");
++  if (not rrc->connection_request(srsran::establishment_cause_t::mo_sig, std::move(pdu))) {
++    logger.error("Error starting RRC connection for the periodic TAU");
++    start_t3412(); // try again at the next expiry
++  }
++  ctxt_base.tx_count++;
++}
++
++void nas::parse_tracking_area_update_accept(uint32_t lcid, unique_byte_buffer_t pdu)
++{
++  LIBLTE_MME_TRACKING_AREA_UPDATE_ACCEPT_MSG_STRUCT accept = {};
++  if (liblte_mme_unpack_tracking_area_update_accept_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &accept) !=
++      LIBLTE_SUCCESS) {
++    logger.error("Error unpacking Tracking Area Update Accept");
++    return;
++  }
++  logger.info("Received Tracking Area Update Accept");
++  if (accept.t3412_present) {
++    set_t3412(accept.t3412);
++  }
++  if (accept.guti_present) {
++    memcpy(&ctxt.guti, &accept.guti.guti, sizeof(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT));
++    have_guti = true;
++    s_tmsi_t s_tmsi;
++    s_tmsi.mmec   = ctxt.guti.mme_code;
++    s_tmsi.m_tmsi = ctxt.guti.m_tmsi;
++    rrc->set_ue_identity(s_tmsi);
++    send_tracking_area_update_complete(); // TS 24.301 5.5.3.2.4: a new GUTI is acknowledged
++  }
++}
++
++void nas::send_tracking_area_update_complete()
++{
++  unique_byte_buffer_t pdu = srsran::make_byte_buffer();
++  if (!pdu) {
++    logger.error("Couldn't allocate PDU in %s().", __FUNCTION__);
++    return;
++  }
++  LIBLTE_MME_TRACKING_AREA_UPDATE_COMPLETE_MSG_STRUCT complete = {};
++  liblte_mme_pack_tracking_area_update_complete_msg(
++      &complete, current_sec_hdr, ctxt_base.tx_count, (LIBLTE_BYTE_MSG_STRUCT*)pdu.get());
++  if (apply_security_config(pdu, current_sec_hdr)) {
++    logger.error("Error applying NAS security.");
++    return;
++  }
++  if (pcap != nullptr) {
++    pcap->write_nas(pdu->msg, pdu->N_bytes);
++  }
++  logger.info("Sending Tracking Area Update Complete");
++  rrc->write_sdu(std::move(pdu));
++  ctxt_base.tx_count++;
++}
++
++void nas::parse_tracking_area_update_reject(uint32_t lcid, unique_byte_buffer_t pdu)
++{
++  LIBLTE_MME_TRACKING_AREA_UPDATE_REJECT_MSG_STRUCT reject = {};
++  liblte_mme_unpack_tracking_area_update_reject_msg((LIBLTE_BYTE_MSG_STRUCT*)pdu.get(), &reject);
++  logger.warning("Received Tracking Area Update Reject (cause %d): attaching again", reject.emm_cause);
++  srsran::console("Tracking area update rejected (cause %d): attaching again\n", reject.emm_cause);
++  // TS 24.301 5.5.3.2.5 (e.g. #9 UE identity cannot be derived, #10 implicitly detached):
++  // the UE enters EMM-DEREGISTERED and attaches again.
++  if (reject.emm_cause == LIBLTE_MME_EMM_CAUSE_UE_IDENTITY_CANNOT_BE_DERIVED_BY_THE_NETWORK) {
++    have_guti = false;
++  }
++  enter_emm_deregistered(emm_state_t::deregistered_substate_t::plmn_search);
++}
++
+ void nas::send_service_request()
+ {
+   unique_byte_buffer_t msg = srsran::make_byte_buffer();
