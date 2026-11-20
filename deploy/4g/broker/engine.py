@@ -108,14 +108,27 @@ class Engine:
         e.queue, e.pending = [], 0
         self._on_presence(ep, True)
 
-    def leave(self, ep):
+    def leave(self, ep, keep_tx=False):
+        """Drop the endpoint's session: rx queue, pending requests and (unless keep_tx) its tx.
+        keep_tx: a new process replaces it before the old one's connections closed; what is
+        buffered may already be the new process's tx from its sample 0."""
         e = self._eps[ep]
         if e.a0 is None and not e.transmitted:
             return
         was_on = e.a0 is not None
-        e.reset()
+        if keep_tx:
+            e.a0, e.queue, e.pending = None, [], 0
+        else:
+            e.reset()
         if was_on:
             self._on_presence(ep, False)
+
+    def reset_tx(self, ep):
+        """The endpoint's tx connection closed: forget what that process sent. The session stays
+        (its rx may already belong to the next process, whose tx starts at its sample 0 = a0)."""
+        e = self._eps[ep]
+        e.buf, e.buf_start = np.zeros(0, C64), 0
+        e.transmitted = e.bursting = False
 
     def rx_request(self, ep):
         self._eps[ep].pending += 1

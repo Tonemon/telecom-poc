@@ -130,6 +130,35 @@ class ZmqAirTest(unittest.TestCase):
         n = len(ue2.got)
         self.assertTrue(wait_for(lambda: len(ue2.got) > n + 10), "ue2 stopped after ue1 came back")
 
+    def test_old_connection_dropping_late_does_not_end_the_new_session(self):
+        # Power cut, then power on quickly: the new process joins while the old connections are
+        # still half-open; when the heartbeat finally drops them, the new session must survive
+        # (srsRAN asks for its first rx chunk only once: a lost session never comes back).
+        self.fake("A", 1.0)
+        old = self.fake("ue1", 0.0)
+        self.assertTrue(wait_for(lambda: len(old.got) > 5))
+        new_rx = self.ctx.socket(zmq.REQ)
+        new_rx.setsockopt(zmq.LINGER, 0)
+        new_rx.connect(self.addr["ue1_rx"])
+        got = []
+        def read():
+            while len(got) < 1000:
+                new_rx.send(b"\xff")
+                if not new_rx.poll(3000):
+                    return
+                got.append(new_rx.recv())
+        th = threading.Thread(target=read, daemon=True)
+        th.start()
+        self.assertTrue(wait_for(lambda: self.events.count((("ue", "ue1"), True)) == 2), self.events)
+        old.close()
+        self.fakes.remove(old)
+        time.sleep(0.5)
+        n = len(got)
+        self.assertTrue(wait_for(lambda: len(got) > n + 20), "the new ue1 session stopped getting rx")
+        self.assertEqual(self.events[-1], (("ue", "ue1"), True), self.events)
+        th.join(5)
+        new_rx.close()
+
     def test_tx_requests_are_pipelined(self):
         # srsRAN's tx blocks until asked; several requests in flight keep it from waiting on
         # the air after every subframe (a ROUTER stands in for the REP to see them queue up).

@@ -187,6 +187,30 @@ class EngineTest(unittest.TestCase):
         got = self.run_step([A])[A][0]
         np.testing.assert_allclose(got, 0.5 * ramp(4))
 
+    def test_reset_tx_forgets_the_old_stream_but_keeps_the_session(self):
+        # The tx connection of a process dropped: what it sent is gone, the next process's tx
+        # starts at its own sample 0, i.e. the session's a0.
+        self.e.join(A)
+        self.e.join(UE1)
+        self.e.tx_data(UE1, ones(100, 9.0))
+        self.run_step([A, UE1])
+        self.e.reset_tx(UE1)
+        self.assertTrue(self.e.present(UE1))
+        self.assertEqual(self.e.ready(), K)  # no longer waits for the old stream
+        self.e.tx_data(UE1, ramp(3 * K))      # the new process, from its sample 0 = a0 = 0
+        got = self.run_step([A])[A][0]
+        np.testing.assert_allclose(got, 0.5 * (ramp(K) + K))
+
+    def test_leave_keep_tx_keeps_what_the_new_process_sent(self):
+        self.e.join(A)
+        self.e.tx_data(A, ramp(8))
+        self.e.leave(A, keep_tx=True)
+        self.assertFalse(self.e.present(A))
+        self.e.join(A)
+        self.e.join(UE2)
+        got = self.run_step([UE2])[UE2][0]
+        np.testing.assert_allclose(got, ramp(4))
+
     def test_leave_touches_only_that_endpoint(self):
         for ep in (UE1, UE2):
             self.e.join(ep)

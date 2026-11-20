@@ -54,7 +54,9 @@ class _Rx:
         self.sock = ctx.socket(zmq.ROUTER)
         _common(self.sock, hb)
         self.sock.bind(addr)
-        self.ident = None
+        self.ident = None   # the session's process (its REQ's identity)
+        self.fd = None      # the connection it came in on: only that connection's close ends it
+        self.stale = set()  # identities of processes that left: their late frames are ignored
 
 
 def _common(sock, hb):
@@ -87,7 +89,7 @@ class ZmqAir:
                 self._data[s] = ep
                 mon = s.get_monitor_socket(zmq.EVENT_DISCONNECTED)
                 self._poller.register(mon, zmq.POLLIN)
-                self._mons[mon] = ep
+                self._mons[mon] = (ep, s)
         self._stop = threading.Event()
 
     # ---- the interface broker.py and control.py use -------------------------------------
@@ -140,43 +142,63 @@ class ZmqAir:
                 self._receive(sock)
 
     def _disconnected(self, mon):
-        ep = self._mons[mon]
+        """A connection closed (or its heartbeat failed). On the rx side only the session's own
+        connection ends the session: a late close of a previous process's connection (power cut,
+        then power on before the heartbeat noticed) must not end the new process's session,
+        because srsRAN asks for its first rx chunk only once. On the tx side, what that process
+        sent is forgotten; the next process starts its tx at its own sample 0."""
+        ep, sock = self._mons[mon]
+        fds = []
         while True:
             try:
-                recv_monitor_message(mon, zmq.NOBLOCK)
+                fds.append(recv_monitor_message(mon, zmq.NOBLOCK)["value"])
             except zmq.Again:
                 break
-        self._leave(ep)
+        if sock is self._tx[ep].sock:
+            tx = self._tx[ep]
+            self._drain(tx.sock)  # only the dead process can have sent these: we ask before anyone else answers
+            tx.outstanding = 0
+            self.engine.reset_tx(ep)
+            return
+        rx = self._rx[ep]
+        if rx.fd is not None and rx.fd in fds:
+            self._end_session(ep, keep_tx=False)
 
-    def _leave(self, ep, drain=True):
-        """Forget the endpoint, and (drain) whatever its dead process left queued on our sockets."""
-        tx, rx = self._tx[ep], self._rx[ep]
-        for s in (tx.sock, rx.sock) if drain else ():
-            while True:
-                try:
-                    s.recv_multipart(zmq.NOBLOCK)
-                except zmq.Again:
-                    break
-        tx.outstanding = 0
-        rx.ident = None
-        self.engine.leave(ep)
+    def _end_session(self, ep, keep_tx):
+        rx = self._rx[ep]
+        if rx.ident is not None:
+            rx.stale.add(rx.ident)
+        rx.ident = rx.fd = None
+        self.engine.leave(ep, keep_tx=keep_tx)
+
+    @staticmethod
+    def _drain(sock):
+        while True:
+            try:
+                sock.recv_multipart(zmq.NOBLOCK)
+            except zmq.Again:
+                return
 
     def _receive(self, sock):
         ep = self._data[sock]
         tx, rx = self._tx[ep], self._rx[ep]
         while True:
             try:
-                frames = sock.recv_multipart(zmq.NOBLOCK)
+                frames = sock.recv_multipart(zmq.NOBLOCK, copy=False)
             except zmq.Again:
                 return
             if sock is tx.sock:
                 tx.answered()
-                self.engine.tx_data(ep, np.frombuffer(frames[-1], np.complex64))
+                self.engine.tx_data(ep, np.frombuffer(frames[-1].bytes, np.complex64))
                 continue
-            ident = frames[0]
+            ident = frames[0].bytes
+            if ident in rx.stale:
+                continue  # a request from a process that already left
             if ident != rx.ident:
                 if rx.ident is not None:
-                    self._leave(ep, drain=False)  # a new process before the old one's disconnect
-                rx.ident = ident
+                    # A new process before the old one's connection closed: what is buffered on
+                    # tx may already be the new process's, from its sample 0.
+                    self._end_session(ep, keep_tx=True)
+                rx.ident, rx.fd = ident, frames[0].get(zmq.SRCFD)
                 self.engine.join(ep)
             self.engine.rx_request(ep)
