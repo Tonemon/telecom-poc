@@ -14,7 +14,7 @@ const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 // What happened, in plain words: what the device sent, and how the network finds out.
 const DONE = {
   switch_off: s => `${s} switched off: it sent a detach to the network as it shut down, so the core removed it at once.`,
-  pull_battery: s => `Battery pulled: ${s} sent nothing. The tower notices the radio link is gone and releases it; the core keeps it registered until its timers run out (unreachable after about 4.5 minutes, detached after about 9).`,
+  pull_battery: s => `Battery pulled: ${s} sent nothing. The tower notices the radio link is gone and releases it; the core keeps it registered until its timers run out: unreachable about 4.5 minutes after the tower lets go (T3412 + 4 min), detached about 4.5 minutes after that.`,
   switch_on: s => `${s} is starting: it searches for a cell and attaches from scratch (with a capture running, that is the textbook attach).`,
   shut_down: s => `${s} shut down: it closed its S1 link to the core cleanly. Its phones lose the signal and look for another cell.`,
   power_cut: s => `${s} lost power: it sent nothing at all. The core notices when its S1 heartbeats go unanswered (about half a minute); its phones lose the signal.`,
