@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,6 +42,19 @@ type Client interface {
 	Exec(ctx context.Context, container string, cmd []string) (ExecResult, error)
 	// ExecStream runs cmd and calls line for every stdout line until it exits or ctx ends.
 	ExecStream(ctx context.Context, container string, cmd []string, line func(string)) error
+
+	// Stop sends SIGTERM and waits up to timeoutS before killing (docker stop).
+	Stop(ctx context.Context, container string, timeoutS int) error
+	// Kill sends SIGKILL (docker kill).
+	Kill(ctx context.Context, container string) error
+	Start(ctx context.Context, container string) error
+	// Networks returns the container's networks: name -> IPv4 address.
+	Networks(ctx context.Context, container string) (map[string]string, error)
+	NetworkDisconnect(ctx context.Context, network, container string) error
+	// NetworkConnect attaches the container with a fixed IPv4 address.
+	NetworkConnect(ctx context.Context, network, container, ipv4 string) error
+	// Logs returns the container's stdout and stderr since a time.
+	Logs(ctx context.Context, container string, since time.Time) (string, error)
 }
 
 type socketClient struct{ http *http.Client }
@@ -114,6 +128,62 @@ func (c *socketClient) List(ctx context.Context, project string) ([]Container, e
 		out = append(out, ct)
 	}
 	return out, nil
+}
+
+func (c *socketClient) post(ctx context.Context, path string, body any) error {
+	resp, err := c.do(ctx, "POST", path, body, nil)
+	if err == nil {
+		resp.Body.Close()
+	}
+	return err
+}
+
+func (c *socketClient) Stop(ctx context.Context, container string, timeoutS int) error {
+	return c.post(ctx, "/containers/"+container+"/stop?t="+strconv.Itoa(timeoutS), nil)
+}
+
+func (c *socketClient) Kill(ctx context.Context, container string) error {
+	return c.post(ctx, "/containers/"+container+"/kill", nil)
+}
+
+func (c *socketClient) Start(ctx context.Context, container string) error {
+	return c.post(ctx, "/containers/"+container+"/start", nil)
+}
+
+func (c *socketClient) Networks(ctx context.Context, container string) (map[string]string, error) {
+	var in struct {
+		NetworkSettings struct {
+			Networks map[string]struct{ IPAddress string }
+		}
+	}
+	if _, err := c.do(ctx, "GET", "/containers/"+container+"/json", nil, &in); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for name, n := range in.NetworkSettings.Networks {
+		out[name] = n.IPAddress
+	}
+	return out, nil
+}
+
+func (c *socketClient) NetworkDisconnect(ctx context.Context, network, container string) error {
+	return c.post(ctx, "/networks/"+network+"/disconnect", map[string]any{"Container": container, "Force": true})
+}
+
+func (c *socketClient) NetworkConnect(ctx context.Context, network, container, ipv4 string) error {
+	return c.post(ctx, "/networks/"+network+"/connect", map[string]any{"Container": container,
+		"EndpointConfig": map[string]any{"IPAMConfig": map[string]string{"IPv4Address": ipv4}}})
+}
+
+func (c *socketClient) Logs(ctx context.Context, container string, since time.Time) (string, error) {
+	resp, err := c.do(ctx, "GET", fmt.Sprintf("/containers/%s/logs?stdout=1&stderr=1&since=%d", container, since.Unix()), nil, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out strings.Builder
+	err = demux(resp.Body, &out, &out)
+	return out.String(), err
 }
 
 func (c *socketClient) start(ctx context.Context, container string, cmd []string) (string, io.ReadCloser, error) {

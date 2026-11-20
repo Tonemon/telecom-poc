@@ -33,8 +33,10 @@ type Actions struct {
 	project     string
 	pcapDir     string
 	iperfServer string
-	stopWait    time.Duration // how long StopPcap waits for the file to settle
-	mmeURL      string        // the MME's metrics server (/enb-info): S1 state as the core sees it
+	stopWait    time.Duration     // how long StopPcap waits for the file to settle
+	mmeURL      string            // the MME's metrics server (/enb-info): S1 state as the core sees it
+	network     string            // the Docker network the radios are on (power cut / power on)
+	towerAddrs  map[string]string // cell id -> the eNB's fixed IPv4 address on it
 	http        *http.Client
 
 	mu         sync.Mutex
@@ -84,7 +86,7 @@ func (a *Actions) running(ctx context.Context, service string) (docker.Container
 	for _, c := range list {
 		if c.Service == service {
 			if c.State != "running" {
-				return c, fmt.Errorf("%s is %s: %w", service, c.State, ErrNotRunning)
+				return c, fmt.Errorf("%s is off (%s): %w", service, c.State, ErrNotRunning)
 			}
 			return c, nil
 		}

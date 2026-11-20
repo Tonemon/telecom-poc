@@ -25,6 +25,8 @@ type Actions interface {
 	SetPing(ctx context.Context, ue string, on bool) error
 	PingSince(ue string, since int) actions.PingState
 	Speedtest(ctx context.Context, ue string) (actions.Speed, error)
+	Power(ctx context.Context, service, action string) (actions.PowerResult, error)
+	Unreachable(ctx context.Context) ([]string, error)
 }
 
 type server struct {
@@ -47,6 +49,8 @@ func New(token string, inv inventory.Inventory, acts Actions) http.Handler {
 	mux.HandleFunc("PUT /ues/{id}/ping", s.auth(s.setPing))
 	mux.HandleFunc("GET /ues/{id}/ping", s.auth(s.getPing))
 	mux.HandleFunc("POST /ues/{id}/speedtest", s.auth(s.speedtest))
+	mux.HandleFunc("POST /power/{service}", s.auth(s.power))
+	mux.HandleFunc("GET /core/unreachable", s.auth(s.unreachable))
 	mux.HandleFunc("/", s.auth(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "no route: "+r.Method+" "+r.URL.Path)
 	}))
@@ -141,12 +145,35 @@ func (s *server) speedtest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, sp)
 }
 
+func (s *server) power(w http.ResponseWriter, r *http.Request) {
+	var body struct{ Action string }
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Action == "" {
+		writeError(w, 400, `want {"action": "switch_off"} (phones: switch_off, pull_battery, switch_on; towers: shut_down, power_cut, power_on)`)
+		return
+	}
+	res, err := s.acts.Power(r.Context(), r.PathValue("service"), body.Action)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, res)
+}
+
+func (s *server) unreachable(w http.ResponseWriter, r *http.Request) {
+	imsis, err := s.acts.Unreachable(r.Context())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string][]string{"imsis": imsis})
+}
+
 // fail maps action errors to HTTP statuses.
 func fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, actions.ErrUnknown), errors.Is(err, actions.ErrNotCapturing):
 		writeError(w, 404, err.Error())
-	case errors.Is(err, actions.ErrNotRunning), errors.Is(err, actions.ErrBusy):
+	case errors.Is(err, actions.ErrNotRunning), errors.Is(err, actions.ErrBusy), errors.Is(err, actions.ErrState):
 		writeError(w, 409, err.Error())
 	default:
 		writeError(w, 502, err.Error())

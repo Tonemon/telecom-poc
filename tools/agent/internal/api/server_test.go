@@ -97,6 +97,19 @@ func (s *stubActions) Speedtest(context.Context, string) (actions.Speed, error) 
 	return actions.Speed{}, fmt.Errorf("ue2 is exited: %w", actions.ErrNotRunning)
 }
 
+func (s *stubActions) Power(_ context.Context, service, action string) (actions.PowerResult, error) {
+	switch {
+	case action == "switch_off":
+		return actions.PowerResult{Service: service, Action: action, State: "off", Command: "docker compose ... stop " + service}, nil
+	case action == "switch_on":
+		return actions.PowerResult{}, fmt.Errorf("%s is already on: %w", service, actions.ErrState)
+	}
+	return actions.PowerResult{}, fmt.Errorf("%s cannot %s: %w", service, action, actions.ErrUnknown)
+}
+func (s *stubActions) Unreachable(context.Context) ([]string, error) {
+	return []string{"999700000000002"}, nil
+}
+
 func call(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -125,6 +138,11 @@ func TestActionRoutes(t *testing.T) {
 		{"GET", "/ues/ue2/ping?since=4", "", 200, `"next":5`},
 		{"GET", "/ues/ue2/ping?since=x", "", 400, "since"},
 		{"POST", "/ues/ue2/speedtest", "", 409, "not running"},
+		{"POST", "/power/ue2", `{"action":"switch_off"}`, 200, `"command":"docker compose ... stop ue2"`},
+		{"POST", "/power/ue2", `{"action":"switch_on"}`, 409, "already on"},
+		{"POST", "/power/ue2", `{"action":"explode"}`, 404, "cannot explode"},
+		{"POST", "/power/ue2", `{}`, 400, "action"},
+		{"GET", "/core/unreachable", "", 200, `{"imsis":["999700000000002"]}`},
 	}
 	for _, c := range cases {
 		rec := call(t, h, c.method, c.path, c.body)
