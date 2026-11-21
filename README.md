@@ -47,6 +47,7 @@ Parts (deep dives):
 - [`docs/parts/2-multi-ue-broker.md`](docs/parts/2-multi-ue-broker.md) - multi-UE / multi-cell (the shared air)
 - [`docs/parts/3-handover.md`](docs/parts/3-handover.md) - handover, travel and no coverage
 - [`docs/parts/4-world-map.md`](docs/parts/4-world-map.md) - the world map: see and drive the network from a web page
+- [`docs/parts/5-hot-join.md`](docs/parts/5-hot-join.md) - phones and towers off and on in a running network
 
 Experiments and findings:
 - [`docs/experiments/1-radio-stability.md`](docs/experiments/1-radio-stability.md) - why UEs sometimes never attached, and what fixed it

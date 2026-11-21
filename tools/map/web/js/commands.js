@@ -36,6 +36,15 @@ function preview(key) {
     case "suspend": return `./bin/telcoctl suspend ${imsi} --reason <REASON>`;
     case "resume": return `./bin/telcoctl resume ${imsi} --reason <REASON>`;
     case "plan": return `./bin/telcoctl set-plan ${imsi} --dl <dl> --ul <ul> --reason <REASON>`;
+    case "power": { // key power:<action>:<service>; id is the action here, arg the service
+      const svc = arg, ctr = `telecom-poc-4g-${svc}-1`, net = "telecom-poc-4g_epc";
+      return {
+        switch_off: `${COMPOSE} stop ${svc}`, shut_down: `${COMPOSE} stop ${svc}`,
+        pull_battery: `${COMPOSE} kill ${svc}`, switch_on: `${COMPOSE} start ${svc}`,
+        power_cut: `docker network disconnect -f ${net} ${ctr} && ${COMPOSE} kill ${svc}`,
+        power_on: `docker network connect --ip <its address> ${net} ${ctr} && ${COMPOSE} start ${svc}    # connect only after a power cut`,
+      }[id] || "";
+    }
   }
   return ue ? "" : "";
 }

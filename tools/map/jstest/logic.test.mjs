@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { pinLabel, validateMap } from "../web/js/logic.js";
+import { chartCells, coreView, pinLabel, powerButtons, radioState, validateMap } from "../web/js/logic.js";
 
 const world = {
   cells: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 10, y: 0 }],
@@ -43,4 +43,45 @@ test("pin labels", () => {
   assert.equal(pinLabel({ from: "A", to: "B", lost: 0 }), "A→B, 0 lost");
   assert.equal(pinLabel({ from: null, to: "B" }), "?→B");
   assert.equal(pinLabel({ from: "A", to: undefined }), "A→?");
+});
+
+test("phone power buttons follow the container state", () => {
+  assert.deepEqual(powerButtons("ue", true), [
+    { action: "switch_off", label: "Switch off", enabled: true },
+    { action: "pull_battery", label: "Pull battery", enabled: true },
+    { action: "switch_on", label: "Switch on", enabled: false },
+  ]);
+  assert.deepEqual(powerButtons("ue", false).map(b => b.enabled), [false, false, true]);
+});
+
+test("tower power buttons follow the container state", () => {
+  assert.deepEqual(powerButtons("cell", true).map(b => [b.action, b.label, b.enabled]), [
+    ["shut_down", "Shut down", true], ["power_cut", "Power cut", true], ["power_on", "Power on", false],
+  ]);
+  assert.deepEqual(powerButtons("cell", false).map(b => b.enabled), [false, false, true]);
+});
+
+test("the core's view of a phone", () => {
+  const reg = (cm, extra = {}) => ({ on: true, mm: "registered", cm, unreachable: false, ...extra });
+  assert.equal(coreView(reg("connected")), "registered, connected");
+  assert.equal(coreView(reg("idle")), "registered, idle");
+  assert.equal(coreView({ on: true, mm: "", cm: "", unreachable: false }), "not registered");
+  assert.equal(coreView(reg("idle", { on: false })), "phone off · core still has it registered (idle)");
+  assert.equal(coreView(reg("idle", { on: false, unreachable: true })),
+    "phone off · core still has it registered (idle) · unreachable (mobile reachable timer expired)");
+  assert.equal(coreView({ on: false, mm: "", cm: "", unreachable: false }), "phone off · not registered");
+});
+
+test("a running radio that is not on the air is called out", () => {
+  assert.equal(radioState(true, true), "on");
+  assert.equal(radioState(false, false), "off");
+  assert.equal(radioState(false, undefined), "off");
+  assert.equal(radioState(true, false), "not on the air");
+  assert.equal(radioState(true, undefined), "on"); // an air without on_air: assume it is
+});
+
+test("the signal chart leaves out towers that are off", () => {
+  const cells = [{ id: "A" }, { id: "B" }];
+  assert.deepEqual(chartCells(cells, id => id === "B").map(c => c.id), ["A"]);
+  assert.deepEqual(chartCells(cells, () => false).map(c => c.id), ["A", "B"]);
 });

@@ -5,12 +5,13 @@ import * as activity from "./activity.js";
 import * as commands from "./commands.js";
 import * as mapfile from "./mapfile.js";
 import * as pingstrip from "./pingstrip.js";
+import * as power from "./power.js";
 import * as api from "./api.js";
 import { margin, renderActions, renderInfo } from "./cards.js";
 import { drawHeat, drawOverlay, drawTerrain } from "./draw.js";
 import { label, view } from "./grid.js";
 import { renderDebug, renderLists, renderTop } from "./sidebar.js";
-import { model, start } from "./state.js";
+import { model, start, towerStatus } from "./state.js";
 import { generate } from "./terrain.js";
 import * as tooltips from "./tooltips.js";
 import * as move from "./move.js";
@@ -57,9 +58,10 @@ function draw() {
   if (!v) return;
   const w = model.world;
   if (w) {
-    const key = JSON.stringify([w.cells, w.pathloss, margin(), v.width, v.height]);
+    const on = w.cells.filter(c => !towerStatus(c).down); // a tower that is off covers nothing
+    const key = JSON.stringify([on, w.pathloss, margin(), v.width, v.height]);
     if (key !== heatKey) {
-      drawHeat($("heat"), v, w.cells, w.pathloss, margin());
+      drawHeat($("heat"), v, on, w.pathloss, margin());
       heatKey = key;
     }
   }
@@ -114,6 +116,7 @@ async function main() {
   move.init();
   commands.init();
   actions.init();
+  power.init();
   pingstrip.init();
   mapfile.init();
   activity.init();

@@ -7,7 +7,7 @@ const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 
 export function ueStatusText(ue) {
   const st = ueStatus(ue);
-  if (st.down) return "container down";
+  if (st.down) return "off";
   if (st.noRadio) return `no radio (MME still says cell ${st.serving || "?"})`;
   if (!st.registered) return "no service";
   return `cell ${st.serving || "?"} · ${st.connected ? "connected" : "idle"}`;
@@ -22,7 +22,7 @@ export function renderLists(el, sel) {
     return `<li class="row${sel.kind === "cell" && sel.id === c.id ? " selected" : ""}" data-cell="${esc(c.id)}">
       <span class="swatch" style="background:${st.down ? "#9ca3af" : cellColor(c.id)}"></span>
       <span class="name">${esc(c.name || c.id)}</span>
-      <span class="status">${st.down ? "down" : st.s1 && !st.s1.up ? "S1 down" : `${served} UE${served === 1 ? "" : "s"}`}</span></li>`;
+      <span class="status">${st.down ? "off" : st.s1 && !st.s1.up ? "S1 down" : `${served} UE${served === 1 ? "" : "s"}`}</span></li>`;
   }).join("");
   const devices = w.ues.map(u => {
     const st = ueStatus(u), dev = deviceOf(u.id);

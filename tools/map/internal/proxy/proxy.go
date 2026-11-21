@@ -50,6 +50,8 @@ var allow = map[string][]route{
 		r("PUT", "/ues/"+id+"/ping"),
 		r("GET", "/ues/"+id+"/ping", "since"),
 		r("POST", "/ues/"+id+"/speedtest"),
+		r("POST", "/power/"+id),
+		r("GET", "/core/unreachable"),
 	},
 	"provisioner": {
 		r("GET", "/subscribers"),

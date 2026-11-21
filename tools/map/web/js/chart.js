@@ -1,9 +1,9 @@
 // Signal chart for one UE: each cell's signal (dB) over the last minutes, the A3 band above the
 // serving cell's line (what a neighbour must beat), and a marker at every handover.
 
-import { pinLabel } from "./logic.js";
+import { chartCells, pinLabel } from "./logic.js";
 import { db } from "./pathloss.js";
-import { cellColor, model } from "./state.js";
+import { cellColor, model, towerStatus } from "./state.js";
 
 const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 const W = 340, H = 150, PAD = { l: 34, r: 8, t: 8, b: 20 }, MIN_DB = -40, SPAN_S = 300;
@@ -14,7 +14,7 @@ export function signalChart(ueId, marginDb) {
   const now = hist[hist.length - 1].t;
   const x = t => PAD.l + (1 - (now - t) / (SPAN_S * 1000)) * (W - PAD.l - PAD.r);
   const y = d => PAD.t + (Math.min(0, Math.max(MIN_DB, d)) / MIN_DB) * (H - PAD.t - PAD.b);
-  const cells = model.world.cells.map(c => c.id);
+  const cells = chartCells(model.world.cells, id => towerStatus({ id }).down).map(c => c.id); // an off tower sends nothing
   let out = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
   for (const d of [0, -10, -20, -30, -40]) {
     out += `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y(d)}" y2="${y(d)}" class="axis"/>` +

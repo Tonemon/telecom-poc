@@ -116,6 +116,7 @@ services:
       context: ../../tools/agent
     environment:
       AGENT_TOKEN: "${AGENT_TOKEN:-dev-agent-token}"
+      AGENT_NETWORK: telecom-poc-4g_epc  # power cut / power on: the network the radios are on
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./config/multi:/conf:ro"
@@ -136,6 +137,7 @@ services:
       - "./config/multi/air.json:/conf/air.json:ro"
     environment:
       AIR_TOKEN: "${AIR_TOKEN:-dev-air-token}"
+      AIR_DEBUG: "${AIR_DEBUG:-}"  # 1: log the engine state every 2 s
     ports:
       - "127.0.0.1:8090:8090"  # control API (bearer token), host-local only
     networks:

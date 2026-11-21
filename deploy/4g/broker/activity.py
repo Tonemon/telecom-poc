@@ -1,6 +1,6 @@
 """Random and realtime activity: who moves where, and when they decide again.
 
-Pure Python (no threads, no GNU Radio): the controller asks plan() for a UE's next move and
+Pure Python (no threads, no sockets): the controller asks plan() for a UE's next move and
 keeps an Automation that tracks, per UE, whether it is under automation, on a manual trip,
 shielded, or pausing before its next decision. Time only advances through due(radio_dt_s),
 in radio seconds, like travel.
@@ -42,13 +42,14 @@ def plan(ue_id, cells, pathloss, rng):
 
 class Automation:
     """Per-UE automation state. state() uses the /world vocabulary:
-    shielded, travelling (a manual trip), auto (under realtime activity), manual."""
+    off (not on the air: switched off), shielded, travelling (a manual trip), auto (under
+    realtime activity), manual."""
 
     def __init__(self, rng, ues):
         self._rng = rng
         self.realtime = False
-        self._ues = {u: {"shielded": False, "manual": False, "auto_trip": False, "pause": None}
-                     for u in ues}
+        self._ues = {u: {"present": True, "shielded": False, "manual": False, "auto_trip": False,
+                         "pause": None} for u in ues}
         self._order = list(ues)
 
     def _u(self, ue):
@@ -58,6 +59,8 @@ class Automation:
 
     def state(self, ue):
         s = self._u(ue)
+        if not s["present"]:
+            return "off"
         if s["shielded"]:
             return "shielded"
         if s["manual"]:
@@ -65,11 +68,13 @@ class Automation:
         return "auto" if self.realtime else "manual"
 
     def eligible(self):
-        """UEs a random decision may move: not shielded, not on a manual trip."""
-        return [u for u in self._order if not self._ues[u]["shielded"] and not self._ues[u]["manual"]]
+        """UEs a random decision may move: on the air, not shielded, not on a manual trip."""
+        return [u for u in self._order if self._ues[u]["present"] and not self._ues[u]["shielded"]
+                and not self._ues[u]["manual"]]
 
     def _pause(self, s):
-        s["pause"] = self._rng.uniform(*PAUSE_RANGE_S) if self.realtime and not s["shielded"] else None
+        active = self.realtime and s["present"] and not s["shielded"]
+        s["pause"] = self._rng.uniform(*PAUSE_RANGE_S) if active else None
 
     def set_realtime(self, on):
         """On: the UEs due right away. Off: the UEs on an automated trip, to be stopped.
@@ -113,6 +118,19 @@ class Automation:
             s["pause"] = None
         elif not s["manual"] and not s["auto_trip"]:
             self._pause(s)
+
+    def on_present(self, ue, present):
+        """A UE joined or left the air. Leaving: True if it was on an automated trip (the
+        caller stops it where it is)."""
+        s = self._u(ue)
+        s["present"] = bool(present)
+        if present:
+            if not s["manual"] and not s["auto_trip"]:
+                self._pause(s)
+            return False
+        was_trip = s["auto_trip"]
+        s["auto_trip"], s["pause"] = False, None
+        return was_trip
 
     def due(self, radio_dt_s):
         """Advance the pauses; the UEs whose pause ran out (each reported once)."""

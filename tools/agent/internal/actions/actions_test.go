@@ -19,6 +19,9 @@ import (
 
 type fakeDocker struct {
 	mu         sync.Mutex
+	calls      []string                     // power calls, in order
+	networks   map[string]map[string]string // container -> network -> IPv4
+	logs       string
 	containers []docker.Container
 	execs      [][]string // container + cmd
 	stdout     map[string]string
@@ -57,6 +60,31 @@ func (f *fakeDocker) ExecStream(ctx context.Context, c string, cmd []string, lin
 	}
 	<-ctx.Done()
 	return nil
+}
+
+func (f *fakeDocker) record(s string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, s)
+	return nil
+}
+
+func (f *fakeDocker) Stop(_ context.Context, c string, t int) error {
+	return f.record(fmt.Sprintf("stop %s %d", c, t))
+}
+func (f *fakeDocker) Kill(_ context.Context, c string) error  { return f.record("kill " + c) }
+func (f *fakeDocker) Start(_ context.Context, c string) error { return f.record("start " + c) }
+func (f *fakeDocker) Networks(_ context.Context, c string) (map[string]string, error) {
+	return f.networks[c], nil
+}
+func (f *fakeDocker) NetworkDisconnect(_ context.Context, n, c string) error {
+	return f.record("disconnect " + n + " " + c)
+}
+func (f *fakeDocker) NetworkConnect(_ context.Context, n, c, ip string) error {
+	return f.record("connect " + n + " " + c + " " + ip)
+}
+func (f *fakeDocker) Logs(_ context.Context, c string, _ time.Time) (string, error) {
+	return f.logs, nil
 }
 
 func (f *fakeDocker) joined() []string {
@@ -155,7 +183,7 @@ func TestActionsOnExitedContainer(t *testing.T) {
 	f := &fakeDocker{containers: []docker.Container{dead}}
 	a := newActions(t, f)
 	ctx := context.Background()
-	if _, err := a.StartPcap(ctx, "ue2"); !errors.Is(err, ErrNotRunning) {
+	if _, err := a.StartPcap(ctx, "ue2"); !errors.Is(err, ErrNotRunning) || !strings.Contains(err.Error(), "ue2 is off") {
 		t.Errorf("pcap: %v", err)
 	}
 	if err := a.SetPing(ctx, "ue2", true); !errors.Is(err, ErrNotRunning) {

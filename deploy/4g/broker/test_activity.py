@@ -116,6 +116,36 @@ class AutomationTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.a.on_manual("ue9")
 
+    def test_absent_ue_is_not_eligible_and_never_due(self):
+        self.a.set_realtime(True)
+        self.a.planned("ue1", {"action": "stay"})
+        self.a.on_present("ue1", False)
+        self.assertNotIn("ue1", self.a.eligible())
+        self.assertNotIn("ue1", self.a.due(100.0))
+
+    def test_state_off_for_absent_ue(self):
+        self.a.on_shielded("ue2", True)
+        self.a.on_present("ue2", False)
+        self.assertEqual(self.a.state("ue2"), "off")
+
+    def test_back_on_air_gets_a_pause_under_realtime(self):
+        self.a.set_realtime(True)
+        self.a.on_present("ue1", False)
+        self.a.on_present("ue1", True)
+        self.assertEqual(self.a.state("ue1"), "auto")
+        self.assertEqual(self.a.due(1.0), [])
+        self.assertIn("ue1", self.a.due(10.0))
+
+    def test_going_off_reports_an_automated_trip(self):
+        self.a.set_realtime(True)
+        self.a.planned("ue1", {"action": "travel"})
+        self.assertTrue(self.a.on_present("ue1", False))
+        self.assertFalse(self.a.on_present("ue2", False))
+
+    def test_realtime_on_skips_absent(self):
+        self.a.on_present("ue2", False)
+        self.assertEqual(self.a.set_realtime(True), ["ue1", "ue3"])
+
     def test_realtime_on_twice_does_not_redecide(self):
         a = Automation(random.Random(1), ["ue1", "ue2"])
         self.assertEqual(a.set_realtime(True), ["ue1", "ue2"])

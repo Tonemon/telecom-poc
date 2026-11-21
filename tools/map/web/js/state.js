@@ -2,6 +2,7 @@
 // a reload starts empty (no history, no pins).
 
 import * as api from "./api.js";
+import { radioState } from "./logic.js";
 
 const HISTORY_S = 300;          // signal chart: last 5 minutes
 export const COLORS = ["#2563eb", "#ea580c", "#16a34a", "#9333ea", "#db2777", "#0891b2"];
@@ -11,6 +12,7 @@ export const model = {
   world: null,                  // air: positions, travel, gains, radio clock
   subs: {},                     // provisioner: imsi -> subscriber (with live network state)
   components: {},               // agent: service -> container state
+  unreachable: new Set(),       // agent: IMSIs the core marks unreachable (mobile reachable timer)
   history: {},                  // ue -> [{t, gains, serving}]
   pins: [],                     // handovers seen: {ue, from, to, x, y, at}
   errors: {},                   // source -> last error message
@@ -38,6 +40,7 @@ function cellByEnb(enbId) {
 // What the network says about a UE: serving cell, registered/connected, and whether its
 // container runs. noRadio: the air gives it no signal at all but the MME still lists it.
 export function ueStatus(ue) {
+  // radio: on, off, or "not on the air" (running, but the air has no session with it)
   const dev = deviceOf(ue.id);
   const sub = dev ? model.subs[dev.imsi] : null;
   const net = sub?.network || null;
@@ -49,6 +52,8 @@ export function ueStatus(ue) {
   return {
     serving: registered ? cellByEnb(net.enb_id) : null,
     registered, connected, down, sub,
+    unreachable: !!dev && model.unreachable.has(dev.imsi),
+    radio: radioState(!down, ue.on_air),
     noRadio: !anyGain && registered,
   };
 }
@@ -57,7 +62,8 @@ export function towerStatus(cell) {
   const t = towerOf(cell.id);
   const comp = t ? model.components[t.service] : null;
   // s1: the tower's link to the core as the MME sees it; null when unknown (MME not reachable).
-  return { down: comp ? comp.state !== "running" : false, tower: t, s1: comp?.s1 || null };
+  const down = comp ? comp.state !== "running" : false;
+  return { down, tower: t, s1: comp?.s1 || null, radio: radioState(!down, cell.on_air) };
 }
 
 // A handover: the serving eNB changed between two polls while the UE stayed registered.
@@ -111,6 +117,7 @@ export async function start(onChange) {
   const comps = () => poll("agent", async () => {
     const list = await api.get("agent", "/components");
     model.components = Object.fromEntries(list.map(c => [c.service, c]));
+    model.unreachable = new Set((await api.get("agent", "/core/unreachable")).imsis);
   }, onChange);
   await Promise.all([world(), subs(), comps()]);
   // Each poll waits for the previous one to finish, so a slow API never gets a pile of requests.

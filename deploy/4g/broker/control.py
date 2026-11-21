@@ -1,6 +1,6 @@
 """Glue between the world (where UEs are), the air (the radio gains) and the API.
 
-Pure Python, testable without GNU Radio. The air calls tick() with how much *radio* time passed
+Pure Python, testable without sockets. The air calls tick() with how much *radio* time passed
 (samples / sample rate) and how much wall time; the controller moves the world on by the radio
 time and pushes only the gains that changed to the air.
 
@@ -9,7 +9,8 @@ move, position change or shielding change of that UE; then the world decides aga
 
 Activity (activity.py): random_activity() gives every eligible UE one decision; realtime
 activity keeps deciding after each arrival and pause. A manual travel takes a UE out of the
-automation until it arrives; shielding until it is unshielded.
+automation until it arrives; shielding until it is unshielded; being off the air (switched off,
+see set_present) until it is back.
 """
 import random
 import threading
@@ -45,6 +46,12 @@ class Controller:
         self._applied = dict(world.gains())
         self._radio_s = 0.0
         self._wall_s = 0.0
+        snap = world.snapshot()
+        # Who is on the air (engine.py reports joins and leaves); nobody until they join.
+        self._on_air = {("cell", c["id"]): False for c in snap["cells"]}
+        self._on_air.update({("ue", u["id"]): False for u in snap["ues"]})
+        for u in snap["ues"]:
+            self.automation.on_present(u["id"], False)
 
     # ---- what the air starts with -------------------------------------------------------
     def initial_gains(self):
@@ -73,6 +80,21 @@ class Controller:
         self._log(f"air: {ue} {'shielded (no radio)' if shielded else 'unshielded'}")
         self.automation.on_shielded(ue, shielded)
         self._moved(ue)
+
+    @_command
+    def set_present(self, ep, on):
+        """An endpoint joined (on) or left the air. A UE that leaves on an automated trip
+        stops where it is; a manual trip of an off UE goes on (it is only a dot moving)."""
+        if ep not in self._on_air:
+            raise KeyError(f"{ep[0]} {ep[1]}")
+        self._on_air[ep] = bool(on)
+        self._log(f"air: {ep[0]} {ep[1]} {'on' if on else 'off'} the air")
+        if ep[0] != "ue":
+            return
+        if self.automation.on_present(ep[1], on):
+            self.world.stop(ep[1])
+            with self._lock:
+                self._push()
 
     # ---- activity -----------------------------------------------------------------------
     @_command
@@ -171,7 +193,10 @@ class Controller:
         snap = self.world.snapshot()
         with self._lock:
             eff = self._effective()
+            for cell in snap["cells"]:
+                cell["on_air"] = self._on_air[("cell", cell["id"])]
             for u in snap["ues"]:
+                u["on_air"] = self._on_air[("ue", u["id"])]
                 u["gains"] = {c: eff[(u["id"], c)] for c in u["gains"]}
                 u["override"] = u["id"] in self._overrides
                 u["automation"] = self.automation.state(u["id"])

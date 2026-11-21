@@ -157,6 +157,10 @@ test-4g-handover: ## Acceptance: ue2 travels A -> B -> A (real S1 handovers, pin
 test-map: ## Acceptance: the world map drives the instance (health, inventory, tower move, pcaps, speedtest, suspend/resume, activity)
 	./deploy/4g/scripts/test-map.sh
 
+.PHONY: test-hot-join
+test-hot-join: ## Acceptance: phones and towers switch off and on in a running network (~30 min, needs make 4g-multi)
+	./deploy/4g/scripts/test-hot-join.sh
+
 .PHONY: test-map-js
 test-map-js: ## Unit tests for the map page's logic (Node in a container; no stack needed)
 	docker run --rm -v "$(CURDIR)/tools/map:/src:ro" -w /src node:22.11.0-alpine sh -c "node --test jstest/*.test.mjs"

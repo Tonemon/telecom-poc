@@ -195,7 +195,6 @@ With a ping every 0.2 s, 0.1 % is about one ping in a thousand: each handover co
 ## 8. Known limits
 
 - **Speed**: above about 1500 km/h radio speed, a UE can lose its connection instead of handing over (§3).
-- **A UE container that restarts cannot rejoin the running air.** The radio has no timestamps, so a restarted endpoint cannot line up with the others again; restart the radio side with `make 4g-devices`. This is the "hot-join" step on the roadmap.
 - **New IPs after a restart**: each UE gets a new IP from the network every time the radio side is restarted.
 - **One frequency**: both cells share an EARFCN, so all handovers are intra-frequency; no measurement gaps are needed.
 

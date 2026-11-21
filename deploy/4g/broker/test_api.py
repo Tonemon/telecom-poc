@@ -6,6 +6,7 @@ import urllib.request
 
 from api import make_server
 from control import Controller
+from test_control import on_air_all
 from test_world import config
 from world import World
 
@@ -100,6 +101,7 @@ class WorldApiTest(ApiTest):
         self.calls = []
         self.ctl = Controller(World(config()), lambda ue, cell, g: self.calls.append((ue, cell, g)),
                               log=lambda *_: None)
+        on_air_all(self.ctl)
         self.server = make_server(0, TOKEN, self.ctl, self.ctl.override_gain)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -159,6 +161,12 @@ class WorldApiTest(ApiTest):
         status, body = self.request("GET", "/world")
         self.assertEqual(status, 200)
         self.assertEqual([u["id"] for u in body["ues"]], ["ue1", "ue2", "ue3"])
+
+    def test_world_includes_on_air(self):
+        self.ctl.set_present(("ue", "ue3"), False)
+        body = self.request("GET", "/world")[1]
+        self.assertEqual({u["id"]: u["on_air"] for u in body["ues"]}, {"ue1": True, "ue2": True, "ue3": False})
+        self.assertTrue(all(c["on_air"] for c in body["cells"]))
 
     def test_world_has_radio_clock(self):
         self.assertIn("radio", self.request("GET", "/world")[1])
