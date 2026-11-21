@@ -2,6 +2,10 @@
 
 A proof-of-concept, fully-virtual 4G/5G mobile network built from open-source components (Open5GS + srsRAN_4G + UERANSIM), for learning telecom internals. No RF hardware, no over-the-air transmission. See `docs/` for `THEORY.md` background, `4G.md` walkthrough, and more.
 
+<video src="docs/telecom-map-UEs-towers.webm" controls muted width="100%">
+  <a href="docs/telecom-map-UEs-towers.webm">The world map: phones moving between the towers (video)</a>
+</video>
+
 
 ## Quickstart (4G)
 
