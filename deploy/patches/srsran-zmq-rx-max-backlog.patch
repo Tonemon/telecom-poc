@@ -1,0 +1,138 @@
+Subject: [PATCH] feat(rf_zmq): rx_max_backlog_ms drops samples a slow radio fell behind on
+
+A radio that reads slower than its samples arrive (an srsue that is still
+booting) fills the rx ring buffer (up to 3072000 samples, 0.27 s at
+11.52 MHz) with old samples. When it starts to transmit it first works
+through all of them, so its uplink lags the other end by as much, and an
+other end that waits for that uplink (our shared air) stalls meanwhile.
+
+With rx_max_backlog_ms=N, each read first drops the oldest samples beyond
+N ms, in whole 10 ms frames, and moves the rx time ahead by as many. That
+is what a real radio does on an overflow: the samples are lost and the
+next timestamp jumps. The existing tx gap padding then keeps the uplink
+in step with the rx time. 0 (the default) keeps the stock behaviour.
+
+Needed for phones and towers that rejoin a running network; see
+docs/parts/5-hot-join.md.
+---
+diff --git a/lib/src/phy/rf/rf_zmq_imp.c b/lib/src/phy/rf/rf_zmq_imp.c
+index 6238fb581..a0c25e3de 100644
+--- a/lib/src/phy/rf/rf_zmq_imp.c
++++ b/lib/src/phy/rf/rf_zmq_imp.c
+@@ -29,6 +29,7 @@
+ #include <srsran/phy/utils/vector.h>
+ #include <stdarg.h>
+ #include <stdlib.h>
++#include <time.h>
+ #include <unistd.h>
+ #include <zmq.h>
+ 
+@@ -60,6 +61,9 @@ typedef struct {
+ 
+   // Rx timestamp
+   uint64_t next_rx_ts;
++  uint32_t rx_max_backlog_ms; // 0: keep every received sample (stock behaviour)
++  uint64_t rx_dropped;        // samples dropped since the last log line
++  time_t   rx_drop_logged;
+ 
+   pthread_mutex_t tx_config_mutex;
+   pthread_mutex_t rx_config_mutex;
+@@ -317,6 +321,9 @@ int rf_zmq_open_multi(char* args, void** h, uint32_t nof_channels)
+       // rx_offset
+       parse_int32(args, "rx_offset", i, &rx_opts.sample_offset);
+ 
++      // rx_max_backlog_ms
++      parse_uint32(args, "rx_max_backlog_ms", -1, &handler->rx_max_backlog_ms);
++
+       // tx_port
+       char tx_port[RF_PARAM_LEN] = {};
+       parse_string(args, "tx_port", i, tx_port);
+@@ -679,6 +686,37 @@ int rf_zmq_recv_with_time_multi(void* h, void** data, uint32_t nsamples, bool bl
+ 
+     rf_zmq_info(handler->id, "Rx %d samples (%d B)\n", nsamples, nbytes);
+ 
++    // Drop what this radio fell behind on (rx_max_backlog_ms). A radio that reads slower than the
++    // samples arrive (an srsue still booting) would otherwise work through up to the whole ring
++    // buffer of old samples first, and its first uplink would lag the other end by as much. Like a
++    // real radio's overflow: the oldest samples are lost and the rx time jumps ahead by as many, so
++    // the tx gap padding below keeps the uplink in step. Whole 10 ms frames, so subframe timing
++    // stays where it was.
++    if (handler->rx_max_backlog_ms > 0 && rf_zmq_rx_is_running(&handler->receiver[0])) {
++      uint64_t frame = handler->base_srate / 100;
++      uint64_t keep  = (uint64_t)handler->base_srate * handler->rx_max_backlog_ms / 1000;
++      uint64_t drop  = UINT64_MAX;
++      for (int i = 0; i < handler->nof_channels; i++) {
++        uint64_t backlog = rf_zmq_rx_backlog(&handler->receiver[i]);
++        drop             = SRSRAN_MIN(drop, backlog > keep ? backlog - keep : 0);
++      }
++      drop = (drop == UINT64_MAX) ? 0 : drop / frame * frame;
++      if (drop > 0) {
++        for (int i = 0; i < handler->nof_channels; i++) {
++          if (rf_zmq_rx_drop(&handler->receiver[i], (uint32_t)drop) < SRSRAN_SUCCESS) {
++            goto clean_exit;
++          }
++        }
++        handler->rx_dropped += drop;
++        time_t now = time(NULL);
++        if (now - handler->rx_drop_logged >= 5) {
++          fprintf(stderr, "[zmq] %s: rx fell behind, dropped %.0f ms of samples\n", handler->id, handler->rx_dropped * 1000.0 / handler->base_srate);
++          handler->rx_dropped = 0, handler->rx_drop_logged = now;
++        }
++        update_ts(handler, &handler->next_rx_ts, (int)drop, "rx drop");
++      }
++    }
++
+     // set timestamp for this reception
+     if (secs != NULL && frac_secs != NULL) {
+       srsran_timestamp_t ts = {};
+diff --git a/lib/src/phy/rf/rf_zmq_imp_rx.c b/lib/src/phy/rf/rf_zmq_imp_rx.c
+index 657733f01..9794607aa 100644
+--- a/lib/src/phy/rf/rf_zmq_imp_rx.c
++++ b/lib/src/phy/rf/rf_zmq_imp_rx.c
+@@ -250,6 +250,29 @@ int rf_zmq_rx_baseband(rf_zmq_rx_t* q, cf_t* buffer, uint32_t nsamples)
+   return n;
+ }
+ 
++uint32_t rf_zmq_rx_backlog(rf_zmq_rx_t* q)
++{
++  uint32_t sample_sz = (q->sample_format == ZMQ_TYPE_FC32) ? sizeof(cf_t) : 2 * sizeof(short);
++  int      nbytes    = srsran_ringbuffer_status(&q->ringbuffer);
++  return nbytes > 0 ? (uint32_t)nbytes / sample_sz : 0;
++}
++
++int rf_zmq_rx_drop(rf_zmq_rx_t* q, uint32_t nsamples)
++{
++  uint32_t sample_sz = (q->sample_format == ZMQ_TYPE_FC32) ? sizeof(cf_t) : 2 * sizeof(short);
++  // temp_buffer_convert, not temp_buffer: the rx thread writes into temp_buffer.
++  uint32_t chunk = ZMQ_MAX_BUFFER_SIZE / sample_sz;
++  while (nsamples > 0) {
++    uint32_t n = SRSRAN_MIN(nsamples, chunk);
++    int      r = srsran_ringbuffer_read(&q->ringbuffer, q->temp_buffer_convert, (int)(n * sample_sz));
++    if (r < SRSRAN_SUCCESS) {
++      return r;
++    }
++    nsamples -= n;
++  }
++  return SRSRAN_SUCCESS;
++}
++
+ bool rf_zmq_rx_match_freq(rf_zmq_rx_t* q, uint32_t freq_hz)
+ {
+   bool ret = false;
+diff --git a/lib/src/phy/rf/rf_zmq_imp_trx.h b/lib/src/phy/rf/rf_zmq_imp_trx.h
+index 71b2a39e4..55bb77296 100644
+--- a/lib/src/phy/rf/rf_zmq_imp_trx.h
++++ b/lib/src/phy/rf/rf_zmq_imp_trx.h
+@@ -123,6 +123,12 @@ SRSRAN_API int rf_zmq_rx_open(rf_zmq_rx_t* q, rf_zmq_opts_t opts, void* zmq_ctx,
+ 
+ SRSRAN_API int rf_zmq_rx_baseband(rf_zmq_rx_t* q, cf_t* buffer, uint32_t nsamples);
+ 
++/// Samples received and waiting to be read.
++SRSRAN_API uint32_t rf_zmq_rx_backlog(rf_zmq_rx_t* q);
++
++/// Drops the oldest nsamples waiting samples.
++SRSRAN_API int rf_zmq_rx_drop(rf_zmq_rx_t* q, uint32_t nsamples);
++
+ SRSRAN_API bool rf_zmq_rx_match_freq(rf_zmq_rx_t* q, uint32_t freq_hz);
+ 
+ SRSRAN_API void rf_zmq_rx_close(rf_zmq_rx_t* q);
