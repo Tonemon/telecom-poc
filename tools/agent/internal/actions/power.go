@@ -79,6 +79,24 @@ func (a *Actions) Power(ctx context.Context, service, action string) (PowerResul
 	if !ok {
 		return PowerResult{}, fmt.Errorf("%s cannot %s: %w", service, action, ErrUnknown)
 	}
+	// One power action per device at a time: a second press while a stop is still waiting for
+	// the detach would otherwise reach Docker mid-way and fail with its raw error.
+	a.mu.Lock()
+	if a.powering[service] {
+		a.mu.Unlock()
+		return PowerResult{}, fmt.Errorf("%s is already switching: %w", service, ErrBusy)
+	}
+	if a.powering == nil {
+		a.powering = map[string]bool{}
+	}
+	a.powering[service] = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.powering, service)
+		a.mu.Unlock()
+	}()
+
 	list, err := a.cli.List(ctx, a.project)
 	if err != nil {
 		return PowerResult{}, err
@@ -91,6 +109,9 @@ func (a *Actions) Power(ctx context.Context, service, action string) (PowerResul
 	}
 	if id == "" {
 		return PowerResult{}, fmt.Errorf("%s has no container: %w", service, ErrNotRunning)
+	}
+	if state != "running" && state != "exited" && state != "created" { // paused, restarting, removing, dead
+		return PowerResult{}, fmt.Errorf("%s is %s, neither on nor off: %w", service, state, ErrState)
 	}
 	if running := state == "running"; running == on {
 		word := map[bool]string{true: "on", false: "off"}[running]
@@ -121,10 +142,11 @@ func (a *Actions) Power(ctx context.Context, service, action string) (PowerResul
 			if ip == "" {
 				return PowerResult{}, fmt.Errorf("no address known for %s on %s", service, a.network)
 			}
-			if err = a.cli.NetworkConnect(ctx, a.network, id, ip); err != nil {
+			// The service name is the DNS alias compose gave it, which a reconnect would lose.
+			if err = a.cli.NetworkConnect(ctx, a.network, id, ip, []string{service}); err != nil {
 				return PowerResult{}, err
 			}
-			cmd = "docker network connect --ip " + ip + " " + a.network + " " + name + " && " + cmd
+			cmd = "docker network connect --ip " + ip + " --alias " + service + " " + a.network + " " + name + " && " + cmd
 		}
 		err = a.cli.Start(ctx, id)
 	}

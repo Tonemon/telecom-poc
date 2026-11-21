@@ -45,6 +45,7 @@ type Actions struct {
 	pcaps      map[string]PcapInfo // component -> running capture
 	pings      map[string]*pinger
 	speedtests map[string]bool
+	powering   map[string]bool // services with a power action under way
 }
 
 func New(cli docker.Client, inv inventory.Inventory, project, pcapDir, iperfServer string) *Actions {

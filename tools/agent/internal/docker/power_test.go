@@ -51,7 +51,7 @@ func TestPowerCalls(t *testing.T) {
 		c.Kill(ctx, "id1"),
 		c.Start(ctx, "id1"),
 		c.NetworkDisconnect(ctx, "net1", "id1"),
-		c.NetworkConnect(ctx, "net1", "id1", "172.22.0.50"),
+		c.NetworkConnect(ctx, "net1", "id1", "172.22.0.50", []string{"enb-b"}),
 	} {
 		if err != nil {
 			t.Fatal(err)
@@ -62,7 +62,7 @@ func TestPowerCalls(t *testing.T) {
 		"POST /containers/id1/kill ",
 		"POST /containers/id1/start ",
 		`POST /networks/net1/disconnect {"Container":"id1","Force":true}`,
-		`POST /networks/net1/connect {"Container":"id1","EndpointConfig":{"IPAMConfig":{"IPv4Address":"172.22.0.50"}}}`,
+		`POST /networks/net1/connect {"Container":"id1","EndpointConfig":{"Aliases":["enb-b"],"IPAMConfig":{"IPv4Address":"172.22.0.50"}}}`,
 	}
 	if !reflect.DeepEqual(d.reqs, want) {
 		t.Fatalf("requests\n%q\nwant\n%q", d.reqs, want)
