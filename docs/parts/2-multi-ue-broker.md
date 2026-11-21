@@ -2,9 +2,9 @@
 
 *Running several UEs on one eNB, and more than one eNB, over the virtual radio.*
 
-This walkthrough explains why the single-UE stack could only ever attach one phone, the GNU Radio **air** we put between all eNBs and UEs to lift that limit, and the steps you can run yourself to reproduce the results. Moving UEs between the cells (handover) builds on this and is in [`3-handover.md`](3-handover.md).
+This walkthrough explains why the single-UE stack could only ever attach one phone, the **air** we put between all eNBs and UEs to lift that limit, and the steps you can run yourself to reproduce the results. Moving UEs between the cells (handover) builds on this and is in [`3-handover.md`](3-handover.md).
 
-> **History.** The first version used one GNU Radio *broker* per cell (`broker-a`, `broker-b`), each wiring one eNB to its own UEs. Those were replaced by one shared **air** for both cells, so a UE can hear both cells at once, which is what handover needs. The program is still called `broker.py` and its image `broker.Dockerfile`.
+> **History.** The first version used one GNU Radio *broker* per cell (`broker-a`, `broker-b`), each wiring one eNB to its own UEs. Those were replaced by one shared **air** for both cells, so a UE can hear both cells at once, which is what handover needs. The program is still called `broker.py` and its image `broker.Dockerfile`. The air was a GNU Radio flowgraph until hot-join ([`5-hot-join.md`](5-hot-join.md)) replaced it with a small numpy engine that lets phones and towers come and go.
 
 
 ## 1. Why one ZMQ link = one UE
@@ -16,19 +16,19 @@ So to get multi-UE and multi-cell we need something in the middle that behaves l
 
 ## 2. The air
 
-The air is one GNU Radio flowgraph (`deploy/4g/broker/broker.py`, service `air`) between every eNB and every UE:
+The air (`deploy/4g/broker/`, service `air`) sits between every eNB and every UE:
 
 - **Downlink**: each UE receives the sum of every cell's transmit stream, each multiplied by a gain for that UE/cell pair.
 - **Uplink**: each cell receives the sum of every UE's transmit stream, with the same gains.
 
 A gain is a number between 0 ("out of range") and 1 ("full signal"). Summation is what the RF channel does naturally when several transmitters are active at once. On a fixed topology the gains are simply 1 or 0; with handover, the air computes them from the distance between UE and cell (see part 3), and they change while the stack runs.
 
-All endpoints run in one **lockstep**: every receive is a request that waits for its reply, so all eNBs and UEs advance together, at the speed of the slowest one. No sample is ever dropped or inserted, which matters because there are no timestamps on the wire: position in the stream *is* time (see [`../experiments/1-radio-stability.md`](../experiments/1-radio-stability.md) §2).
+All endpoints run in one **lockstep**: every receive is a request that waits for its reply, so all eNBs and UEs advance together, at the speed of the slowest one. No sample is ever dropped or inserted, which matters because there are no timestamps on the wire: position in the stream *is* time (see [`../experiments/1-radio-stability.md`](../experiments/1-radio-stability.md) §2). The air counts the samples it exchanges with each radio, so it knows where in time each radio's samples belong, even for one that joined later ([`5-hot-join.md`](5-hot-join.md) §3).
 
 
 ## 3. How the code is split
 
-The wiring decision is **pure and testable** without GNU Radio installed:
+The logic is **pure and testable** without any sockets:
 
 | File | What it does |
 |---|---|
@@ -36,11 +36,13 @@ The wiring decision is **pure and testable** without GNU Radio installed:
 | `world.py` | Positions, travel and path loss: turns distances into gains (part 3) |
 | `control.py` | Glue between the world and the radio: pushes changed gains into the flowgraph |
 | `api.py` | The HTTP control API on port 8090 (part 3) |
-| `broker.py` | Imports GNU Radio and builds the flowgraph from the plan |
+| `engine.py` | The air's clock: mixes every cell into every UE and back, and lets radios join and leave (part 5) |
+| `zmqair.py` | The ZMQ sockets to every eNB and UE, around the engine |
+| `broker.py` | Starts it all: the air, the world and the API |
 
 The ZMQ role convention throughout: **a `tx` endpoint binds (REP), an `rx` endpoint connects (REQ)**. So the air *connects* to each eNB's and UE's tx, and *binds* the sockets each eNB's and UE's rx connects to.
 
-The unit tests (`test_air.py`, `test_world.py`, `test_control.py`, `test_api.py`) run during the image build, which fails if one regresses (`deploy/images/broker.Dockerfile`):
+The unit tests (`test_air.py`, `test_world.py`, `test_control.py`, `test_api.py`, `test_engine.py`, `test_zmqair.py`) run during the image build, which fails if one regresses (`deploy/images/broker.Dockerfile`):
 
 ```dockerfile
 RUN cd /opt/broker && python3 -m unittest discover -p 'test_*.py'
@@ -85,12 +87,12 @@ Which cell a UE uses is no longer an addressing choice: every UE is wired to eve
 The two cells share `dl_earfcn = 3350` but carry **distinct PCI / cell_id / enb_id**, so the MME sees them as two genuine cells. Because the air mixes both cells into each UE, a UE between them really does hear both, on the same frequency (part 3). Each UE has its own IMSI/keys in `config/multi/ue*.conf`, provisioned as three fixed subscribers by `scripts/provision-multi.sh` (keys match the configs, so they actually authenticate).
 
 
-## 6. Start order: the air **last**, and restart together
+## 6. Start order and restarts
 
 The air *connects* to the eNB and UE tx sockets, and the lockstep starts the moment it does. Two consequences:
 
-1. **The air starts last**, after every eNB and UE says its radio is ready (`scripts/wait-radio-ready.sh`; the `make` targets do this for you).
-2. **The radio side restarts as a whole.** There are no timestamps on the wire, so an endpoint that restarts cannot line up with the others again. `make 4g-devices` therefore recreates the eNBs, the UEs and the air together (the core and the subscribers stay). Letting a single UE join or leave a running air is the "hot-join" step on the roadmap.
+1. **The `make` targets start the air last**, after every eNB and UE says its radio is ready (`scripts/wait-radio-ready.sh`). Since hot-join this is no longer required, but it keeps a fresh start tidy.
+2. **A single eNB or UE can restart on its own**: it rejoins the running air by itself ([`5-hot-join.md`](5-hot-join.md)). Only a restart of the air itself still needs the radio side restarted with it: `make 4g-devices` recreates the eNBs, the UEs and the air together (the core and the subscribers stay).
 
 This doesn't come up for `telcoctl suspend`/`resume`: that only tears down the S1-U bearer and NAS session, never the radio, so a suspended-then-resumed UE reattaches on its own (see `docs/4G.md` §2) without any container restarting.
 
