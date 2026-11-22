@@ -27,6 +27,8 @@ type fakeDocker struct {
 	stdout     map[string]string
 	stderr     map[string]string // matching commands exit 1 with this on stderr
 	stream     []string
+	block      chan struct{} // when set, Stop waits for it to close
+	blocked    chan struct{} // Stop signals here once it is waiting
 }
 
 func (f *fakeDocker) List(context.Context, string) ([]docker.Container, error) {
@@ -70,6 +72,10 @@ func (f *fakeDocker) record(s string) error {
 }
 
 func (f *fakeDocker) Stop(_ context.Context, c string, t int) error {
+	if f.block != nil { // hold the stop until the test closes block
+		f.blocked <- struct{}{}
+		<-f.block
+	}
 	return f.record(fmt.Sprintf("stop %s %d", c, t))
 }
 func (f *fakeDocker) Kill(_ context.Context, c string) error  { return f.record("kill " + c) }
@@ -80,8 +86,8 @@ func (f *fakeDocker) Networks(_ context.Context, c string) (map[string]string, e
 func (f *fakeDocker) NetworkDisconnect(_ context.Context, n, c string) error {
 	return f.record("disconnect " + n + " " + c)
 }
-func (f *fakeDocker) NetworkConnect(_ context.Context, n, c, ip string) error {
-	return f.record("connect " + n + " " + c + " " + ip)
+func (f *fakeDocker) NetworkConnect(_ context.Context, n, c, ip string, aliases []string) error {
+	return f.record(fmt.Sprintf("connect %s %s %s %v", n, c, ip, aliases))
 }
 func (f *fakeDocker) Logs(_ context.Context, c string, _ time.Time) (string, error) {
 	return f.logs, nil

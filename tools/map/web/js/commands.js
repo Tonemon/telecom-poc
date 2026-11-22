@@ -42,7 +42,7 @@ function preview(key) {
         switch_off: `${COMPOSE} stop ${svc}`, shut_down: `${COMPOSE} stop ${svc}`,
         pull_battery: `${COMPOSE} kill ${svc}`, switch_on: `${COMPOSE} start ${svc}`,
         power_cut: `docker network disconnect -f ${net} ${ctr} && ${COMPOSE} kill ${svc}`,
-        power_on: `docker network connect --ip <its address> ${net} ${ctr} && ${COMPOSE} start ${svc}    # connect only after a power cut`,
+        power_on: `docker network connect --ip <its address> --alias ${svc} ${net} ${ctr} && ${COMPOSE} start ${svc}    # connect only after a power cut`,
       }[id] || "";
     }
   }

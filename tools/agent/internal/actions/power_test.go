@@ -82,10 +82,10 @@ func TestPowerOnReconnectsWithFixedIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.calls, []string{"connect " + epc + " id-enb-a 172.22.0.40", "start id-enb-a"}) {
+	if !reflect.DeepEqual(f.calls, []string{"connect " + epc + " id-enb-a 172.22.0.40 [enb-a]", "start id-enb-a"}) {
 		t.Errorf("calls %v", f.calls)
 	}
-	want := "docker network connect --ip 172.22.0.40 " + epc + " telecom-poc-4g-enb-a-1 && " + Compose + " start enb-a"
+	want := "docker network connect --ip 172.22.0.40 --alias enb-a " + epc + " telecom-poc-4g-enb-a-1 && " + Compose + " start enb-a"
 	if r.Command != want {
 		t.Errorf("command %q, want %q", r.Command, want)
 	}
@@ -119,6 +119,44 @@ func TestPowerRejectsWrongKindAndAlreadyInState(t *testing.T) {
 	}
 	if len(f.calls) != 0 {
 		t.Errorf("no Docker call expected, got %v", f.calls)
+	}
+}
+
+func TestPowerSecondActionWhileOneRunsIsBusy(t *testing.T) {
+	f := &fakeDocker{containers: []docker.Container{running("ue2")}, block: make(chan struct{}), blocked: make(chan struct{})}
+	a := powerActions(t, f)
+	done := make(chan error)
+	go func() { _, err := a.Power(context.Background(), "ue2", "switch_off"); done <- err }()
+	<-f.blocked // the first stop is under way
+	if _, err := a.Power(context.Background(), "ue2", "pull_battery"); !errors.Is(err, ErrBusy) || !strings.Contains(err.Error(), "ue2 is already switching") {
+		t.Errorf("second action: %v", err)
+	}
+	close(f.block)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.calls, []string{"stop id-ue2 15"}) {
+		t.Errorf("calls %v", f.calls)
+	}
+	f.containers = []docker.Container{stopped("ue2")} // and the service is free again afterwards
+	if _, err := a.Power(context.Background(), "ue2", "switch_on"); err != nil {
+		t.Errorf("after the first finished: %v", err)
+	}
+}
+
+func TestPowerOnAPausedOrRestartingDeviceIsAStateError(t *testing.T) {
+	for _, state := range []string{"paused", "restarting", "removing"} {
+		c := running("ue2")
+		c.State = state
+		f := &fakeDocker{containers: []docker.Container{c}}
+		for _, action := range []string{"switch_on", "switch_off"} {
+			if _, err := powerActions(t, f).Power(context.Background(), "ue2", action); !errors.Is(err, ErrState) || !strings.Contains(err.Error(), "ue2 is "+state) {
+				t.Errorf("%s %s: %v", state, action, err)
+			}
+		}
+		if len(f.calls) != 0 {
+			t.Errorf("%s: no Docker call expected, got %v", state, f.calls)
+		}
 	}
 }
 

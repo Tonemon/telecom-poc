@@ -48,7 +48,7 @@ The air is the only clock: every phone and tower waits on it for each slice of r
 
 - **Leaving** is noticed only when the connection closes (or, after a power cut, when ZMQ's own link checks go unanswered), never because a radio went quiet: while the air waits for one radio, all the others are quiet too.
 - **A booting phone never holds the others up**: until it transmits, the air does not wait for it.
-- **When it first transmits**, the air waits for it to catch up with the downlink it buffered while booting. The other phones' pings slow down for a few seconds then, but nothing is lost.
+- **When it first transmits**, the air waits for it to catch up with the downlink it still has waiting. While booting, a phone reads slower than the air sends; stock srsRAN keeps up to 0.27 s of that old radio and works through all of it first, which slowed the other phones' pings to 1.5 s. A build-time patch (`deploy/patches/srsran-zmq-rx-max-backlog.patch`, `rx_max_backlog_ms=20` in `deploy/4g/config/multi/*.conf`) makes a radio that fell behind drop its oldest samples instead, like a real radio's overflow, so only a short wait remains: the others' pings rise to about half a second once, and nothing is lost.
 
 `AIR_DEBUG=1 make 4g-multi` logs the air's view of every radio every 2 s. The code is in `deploy/4g/broker/engine.py` (the logic, unit-tested without sockets) and `zmqair.py` (the sockets).
 

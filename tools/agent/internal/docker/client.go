@@ -51,8 +51,8 @@ type Client interface {
 	// Networks returns the container's networks: name -> IPv4 address.
 	Networks(ctx context.Context, container string) (map[string]string, error)
 	NetworkDisconnect(ctx context.Context, network, container string) error
-	// NetworkConnect attaches the container with a fixed IPv4 address.
-	NetworkConnect(ctx context.Context, network, container, ipv4 string) error
+	// NetworkConnect attaches the container with a fixed IPv4 address and DNS aliases.
+	NetworkConnect(ctx context.Context, network, container, ipv4 string, aliases []string) error
 	// Logs returns the container's stdout and stderr since a time.
 	Logs(ctx context.Context, container string, since time.Time) (string, error)
 }
@@ -170,9 +170,9 @@ func (c *socketClient) NetworkDisconnect(ctx context.Context, network, container
 	return c.post(ctx, "/networks/"+network+"/disconnect", map[string]any{"Container": container, "Force": true})
 }
 
-func (c *socketClient) NetworkConnect(ctx context.Context, network, container, ipv4 string) error {
+func (c *socketClient) NetworkConnect(ctx context.Context, network, container, ipv4 string, aliases []string) error {
 	return c.post(ctx, "/networks/"+network+"/connect", map[string]any{"Container": container,
-		"EndpointConfig": map[string]any{"IPAMConfig": map[string]string{"IPv4Address": ipv4}}})
+		"EndpointConfig": map[string]any{"IPAMConfig": map[string]string{"IPv4Address": ipv4}, "Aliases": aliases}})
 }
 
 func (c *socketClient) Logs(ctx context.Context, container string, since time.Time) (string, error) {

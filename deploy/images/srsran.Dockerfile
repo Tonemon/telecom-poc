@@ -19,12 +19,16 @@ COPY deploy/patches/srsran-zmq-log-trx-timeout.patch /tmp/
 # Periodic tracking area updates: stock srsue ignores T3412, so an idle UE never reports in and
 # the MME detaches it implicitly (see docs/parts/5-hot-join.md, "pull battery").
 COPY deploy/patches/srsran-nas-periodic-tau.patch /tmp/
+# rx_max_backlog_ms: a radio that fell behind drops its oldest samples instead of working through
+# them, so a rejoining phone does not stall the others (see docs/parts/5-hot-join.md).
+COPY deploy/patches/srsran-zmq-rx-max-backlog.patch /tmp/
 # The submodule's .git is a gitlink pointing at the parent repo's
 # .git/modules (outside this build context), so it's a dangling reference
 # here; drop it, it isn't needed to compile.
 RUN rm -rf .git && git apply /tmp/srsran-nas-t3402.patch \
     && git apply /tmp/srsran-zmq-log-trx-timeout.patch \
-    && git apply /tmp/srsran-nas-periodic-tau.patch
+    && git apply /tmp/srsran-nas-periodic-tau.patch \
+    && git apply /tmp/srsran-zmq-rx-max-backlog.patch
 # Build only what the stack runs (srsenb, srsue, the RF loader and its ZMQ plugin). A plain
 # `make` also compiles every unit test and example (measured on 8 CPUs: 20 min for the full
 # build vs 15 min for this one including the apt layer); srsRAN has no switch for that, and its
